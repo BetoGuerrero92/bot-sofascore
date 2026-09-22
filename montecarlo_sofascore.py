@@ -5,7 +5,7 @@ import requests
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
-
+app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
 
@@ -540,12 +540,14 @@ def analyze_all_matches(target_matches=None):
     return salida_final
 
 
-if __name__== "__main__":
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        func=analyze_all_matches, trigger="cron", hour=21, minute=0
-    )
-    scheduler.start()
+@app.route("/")
+def index():
+    return "Bot Monte Carlo activo y programado a las 9:00 PM"
 
-    port = int(os.environ.get("PORT", 10000))
+if _name_ == "_main_":
+    scheduler = BackgroundScheduler(timezone="America/Mexico_City")
+    scheduler.add_job(job, 'cron', hour=21, minute=0)
+    scheduler.start()
+    
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
