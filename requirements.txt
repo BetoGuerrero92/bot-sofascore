@@ -1,9 +1,6 @@
+flask
+gunicorn
 requests
 numpy
-curl_cffi
 apscheduler
-flask
-playwright
-schedule
-cloudscraper
-gunicorn
+curl_cffi
