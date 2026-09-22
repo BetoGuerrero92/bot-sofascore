@@ -551,7 +551,7 @@ def index():
 
 def procesar_partido_background(url_raw, chat_id):
     try:
-        # Limpia anclas como #id:17148324
+        # Limpia anclas de URL como #id:17148324
         url = url_raw.split('#')[0].strip()
         
         partido = obtener_partido_por_url(url)
@@ -570,7 +570,7 @@ def procesar_partido_background(url_raw, chat_id):
         
         nombre_foto = f"reporte_custom_{chat_id}.png"
         
-        # Renderiza la infografía con Playwright dentro del proceso independiente
+        # Genera la infografía usando Playwright en un proceso independiente
         renderizar_liga_a_imagen_4k(html_final, nombre_foto)
         
         caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
@@ -590,6 +590,29 @@ def webhook():
         data = request.get_json(force=True, silent=True)
         if not data or "message" not in data:
             return "OK", 200
+
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = (message.get("text") or message.get("caption") or "").strip()
+
+        if "sofascore.com" in text:
+            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
+            
+            words = text.split()
+            url = next((w.strip() for w in words if "sofascore.com" in w), None)
+
+            if url:
+                # Usa multiprocessing en lugar de threading para Playwright
+                proceso = multiprocessing.Process(target=procesar_partido_background, args=(url, chat_id))
+                proceso.start()
+            else:
+                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
+
+    except Exception as e:
+        print(f"Error en Webhook: {e}")
+
+    return "OK", 200
+      
 
         message = data["message"]
         chat_id = message["chat"]["id"]
