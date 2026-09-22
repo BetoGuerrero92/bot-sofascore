@@ -3,7 +3,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask
 import numpy as np
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 
 @app.route("/")
