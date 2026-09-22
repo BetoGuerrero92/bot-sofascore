@@ -1,10 +1,10 @@
 import os
-from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask
+import time
 import numpy as np
-
-app = Flask(__name__)
 import requests
+from flask import Flask
+from apscheduler.schedulers.background import BackgroundScheduler
+from playwright.sync_api import sync_playwright
 
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
@@ -20,25 +20,73 @@ def send_telegram_message(text):
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Error enviando a Telegram: {e}")
+def send_telegram_photo(image_path, caption=""):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    try:
+        with open(image_path, 'rb') as photo:
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "caption": caption,
+                "parse_mode": "Markdown"
+            }
+            files = {"photo": photo}
+            requests.post(url, data=payload, files=files, timeout=30)
+    except Exception as e:
+        print(f"Error enviando foto a Telegram: {e}")
 
+def renderizar_liga_a_imagen_4k(html_codigo, nombre_archivo="reporte_liga.png"):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(
+            viewport={'width': 1440, 'height': 900},
+            device_scale_factor=2.5
+        )
+        page.set_content(html_codigo)
+        page.locator("body").screenshot(path=nombre_archivo, full_page=True)
+        browser.close()
+    return nombre_archivo
 def job():
-    # Sustituye o vincula aquí tu lógica de extracción de SofaScore
-    # Ejemplo de prueba ejecutando la calculadora sobre un partido de muestra:
-    match_demo = {
-        "exp_g_home": 1.6, "exp_g_away": 1.2,
-        "exp_c_home": 5.2, "exp_c_away": 4.1,
-        "exp_card_home": 2.1, "exp_card_away": 2.4
-    }
+    print("⏰ Ejecutando análisis programado de las 9:00 PM...")
     
-    # Llama a tu función Monte Carlo existente
-    resultados = run_monte_carlo_analysis(match_demo)
-    
-    # Envía el reporte a Telegram
-    mensaje = "⚽ REPORTE DE PRUEBA MONTE CARLO\n\n"
-    mensaje += "✅ El bot está conectado correctamente a Telegram.\n"
-    mensaje += "🎯 Direct Pick: Local o Empate ( Probabilidad: 78.5% )"
-    
-    send_telegram_message(mensaje)
+    # 1. Obtener partidos de mañana
+    partidos = obtener_partidos_manana()  
+
+    # CASO SIN PARTIDOS
+    if not partidos:
+        send_telegram_message(
+            "⚽ REPORTE DIARIO DE ESTADO\n\n"
+            "El sistema analizó las ligas monitoreadas y no se encontraron partidos para el día de mañana.\n"
+            "✅ El bot sigue operando correctamente."
+        )
+        return
+
+    # CASO CON PARTIDOS (Generar infografía 4K)
+    try:
+        with open("plantilla_partido.html", "r", encoding="utf-8") as f:
+            html_base = f.read()
+    except Exception as e:
+        print(f"Error cargando plantilla HTML: {e}")
+        return
+
+    partidos_por_liga = agrupar_por_liga(partidos)
+
+    for liga, lista_partidos in partidos_por_liga.items():
+        html_contenido = ""
+        for partido in lista_partidos:
+            html_contenido += generar_card_partido_html(partido)
+            
+        html_final = html_base.replace("{{ NOMBRE_LIGA }}", liga.upper())
+        html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_contenido)
+        
+        nombre_foto = f"reporte_{liga.replace(' ', '_')}.png"
+        renderizar_liga_a_imagen_4k(html_final, nombre_foto)
+        
+        caption = f"🏆 {liga.upper()} — ANÁLISIS DE JORNADA\n📊 {len(lista_partidos)} partidos procesados por Monte Carlo."
+        send_telegram_photo(nombre_foto, caption=caption)
+        
+        time.sleep(3)
+        if os.path.exists(nombre_foto):
+            os.remove(nombre_foto)
 
 
 @app.route("/")
