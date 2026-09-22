@@ -4,6 +4,41 @@ from flask import Flask
 import numpy as np
 
 app = Flask(__name__)
+import requests
+
+TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
+TELEGRAM_CHAT_ID = "-5173591171"
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Error enviando a Telegram: {e}")
+
+def job():
+    # Sustituye o vincula aquí tu lógica de extracción de SofaScore
+    # Ejemplo de prueba ejecutando la calculadora sobre un partido de muestra:
+    match_demo = {
+        "exp_g_home": 1.6, "exp_g_away": 1.2,
+        "exp_c_home": 5.2, "exp_c_away": 4.1,
+        "exp_card_home": 2.1, "exp_card_away": 2.4
+    }
+    
+    # Llama a tu función Monte Carlo existente
+    resultados = run_monte_carlo_analysis(match_demo)
+    
+    # Envía el reporte a Telegram
+    mensaje = "⚽ REPORTE DE PRUEBA MONTE CARLO\n\n"
+    mensaje += "✅ El bot está conectado correctamente a Telegram.\n"
+    mensaje += "🎯 Direct Pick: Local o Empate ( Probabilidad: 78.5% )"
+    
+    send_telegram_message(mensaje)
 
 
 @app.route("/")
