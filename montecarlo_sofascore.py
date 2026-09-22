@@ -2,17 +2,18 @@ import os
 import time
 import numpy as np
 import requests
-from flask import Flask
+from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
 app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
 
-def send_telegram_message(text):
+def send_telegram_message(text, chat_id=None):
+    target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": target_chat,
         "text": text,
         "parse_mode": "Markdown"
     }
@@ -20,12 +21,14 @@ def send_telegram_message(text):
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Error enviando a Telegram: {e}")
-def send_telegram_photo(image_path, caption=""):
+
+def send_telegram_photo(image_path, caption="", chat_id=None):
+    target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     try:
         with open(image_path, 'rb') as photo:
             payload = {
-                "chat_id": TELEGRAM_CHAT_ID,
+                "chat_id": target_chat,
                 "caption": caption,
                 "parse_mode": "Markdown"
             }
@@ -543,7 +546,49 @@ def analyze_all_matches(target_matches=None):
 @app.route("/")
 def index():
     return "Bot Monte Carlo activo y programado a las 9:00 PM"
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json(force=True, silent=True)
+    if not data or "message" not in data:
+        return "OK", 200
 
+    message = data["message"]
+    chat_id = message["chat"]["id"]
+    text = message.get("text", "").strip()
+
+    if "sofascore.com" in text:
+        send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
+        try:
+            url = [word for word in text.split() if "sofascore.com" in word][0]
+            partido = obtener_partido_por_url(url)
+            
+            if not partido:
+                send_telegram_message("❌ No se pudieron obtener los datos de ese enlace de SofaScore.", chat_id=chat_id)
+                return "OK", 200
+                
+            with open("plantilla_partido.html", "r", encoding="utf-8") as f:
+                html_base = f.read()
+                
+            html_card = generar_card_partido_html(partido)
+            nombre_liga = partido.get("league_name", "ANÁLISIS INDIVIDUAL")
+            
+            html_final = html_base.replace("{{ NOMBRE_LIGA }}", nombre_liga.upper())
+            html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_card)
+            
+            nombre_foto = f"reporte_custom_{chat_id}.png"
+            renderizar_liga_a_imagen_4k(html_final, nombre_foto)
+            
+            caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
+            send_telegram_photo(nombre_foto, caption=caption, chat_id=chat_id)
+            
+            if os.path.exists(nombre_foto):
+                os.remove(nombre_foto)
+                
+        except Exception as e:
+            print(f"Error en solicitud individual: {e}")
+            send_telegram_message(f"⚠️ Ocurrió un error al procesar el partido: {e}", chat_id=chat_id)
+
+    return "OK", 200
 if __name__ == "__main__":
     scheduler = BackgroundScheduler(timezone="America/Mexico_City")
     scheduler.add_job(job, 'cron', hour=21, minute=0)
