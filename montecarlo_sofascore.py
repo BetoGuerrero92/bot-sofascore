@@ -1,10 +1,10 @@
-mport os
+import os
 import time
 import re
 import datetime
 import numpy as np
 import requests
-import cloudscraper
+from curl_cffi import requests as curl_requests
 import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,13 +17,15 @@ TELEGRAM_CHAT_ID = "-5173591171"
 LIGAS_OBJETIVO_IDS = []  
 
 def get_scraper():
-    return cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        }
-    )
+    session = curl_requests.Session(impersonate="chrome120")
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "/",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Referer": "https://www.sofascore.com/",
+        "Origin": "https://www.sofascore.com"
+    })
+    return session
 
 def send_telegram_message(text, chat_id=None):
     target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
