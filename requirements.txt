@@ -1,0 +1,5 @@
+requests
+numpy
+curl_cffi
+apscheduler
+flask
