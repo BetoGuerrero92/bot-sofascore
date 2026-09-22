@@ -31,6 +31,7 @@ def send_telegram_message(text, chat_id=None):
 
 def obtener_partido_por_url(url):
     try:
+        # Extraer los números de toda la URL (incluyendo lo que esté después de #id:)
         ids = re.findall(r'\d+', url)
         if not ids:
             return None
@@ -47,6 +48,18 @@ def obtener_partido_por_url(url):
                 "exp_g_home": 1.6,
                 "exp_g_away": 1.2,
             }
+        else:
+            # Fallback en caso de que SofaScore restrinja la API
+            if "/match/" in url:
+                slug = url.split("/match/")[1].split("/")[0]
+                partes = slug.replace("-", " ").title().split(" ")
+                mitad = len(partes) // 2
+                return {
+                    "home": " ".join(partes[:mitad]) if mitad > 0 else "Local",
+                    "away": " ".join(partes[mitad:]) if mitad > 0 else "Visitante",
+                    "exp_g_home": 1.6,
+                    "exp_g_away": 1.2,
+                }
     except Exception as e:
         print(f"Error consultando SofaScore: {e}")
     return None
@@ -227,7 +240,6 @@ Doble Op: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12'
     return reporte_texto
 
 def ejecutar_analisis_diario_21pm():
-    """Se ejecuta automáticamente a las 9:00 PM (hora México)"""
     manana = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     send_telegram_message(f"🚀 Iniciando barrido programado de partidos para mañana ({manana})...")
 
@@ -240,8 +252,7 @@ def ejecutar_analisis_diario_21pm():
                 send_telegram_message("⚠️ No se encontraron partidos programados para mañana.")
                 return
 
-            # Para evitar sobrecargar el bot, enviamos bloques con 1.5s de pausa
-            for event in events[:15]:  # Analiza los eventos principales
+            for event in events[:15]:
                 match_info = {
                     "home": event.get("homeTeam", {}).get("name", "Local"),
                     "away": event.get("awayTeam", {}).get("name", "Visitante"),
@@ -257,18 +268,17 @@ def ejecutar_analisis_diario_21pm():
     except Exception as e:
         print(f"Error en tarea nocturna: {e}")
 
-# Configuración del programador a las 21:00 (9:00 PM) hora de México
 scheduler = BackgroundScheduler(timezone="America/Mexico_City")
 scheduler.add_job(func=ejecutar_analisis_diario_21pm, trigger="cron", hour=21, minute=0)
 scheduler.start()
 
 @app.route("/", methods=["GET", "HEAD"])
 def index():
-    return "Bot Monte Carlo activo y programado (21:00 hrs)", 200
+    return "Bot Monte Carlo activo", 200
 
 def procesar_partido_background(url_raw, chat_id):
     try:
-        url = url_raw.split('#')[0].strip()
+        url = url_raw.strip()
         partido = obtener_partido_por_url(url)
         if not partido:
             send_telegram_message("❌ No se pudieron obtener los datos del enlace de SofaScore.", chat_id=chat_id)
@@ -313,4 +323,6 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
     
