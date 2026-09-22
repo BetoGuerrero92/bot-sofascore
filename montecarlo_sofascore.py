@@ -1,30 +1,29 @@
-import os
+mport os
 import time
 import re
 import datetime
 import numpy as np
 import requests
+import cloudscraper
 import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
-TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
+TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruI"  
 TELEGRAM_CHAT_ID = "-5173591171"
-
-# Headers optimizados para evitar bloqueos 403/406 de SofaScore
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Accept": "/",
-    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
-    "Referer": "https://www.sofascore.com/",
-    "Origin": "https://www.sofascore.com",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache"
-}
 
 # Si está vacío, procesa TODOS los partidos de la cartelera sin excepción
 LIGAS_OBJETIVO_IDS = []  
+
+def get_scraper():
+    return cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
 
 def send_telegram_message(text, chat_id=None):
     target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
@@ -47,7 +46,8 @@ def obtener_partido_por_url(url):
         event_id = ids[-1]
         
         api_url = f"https://api.sofascore.com/api/v3/event/{event_id}"
-        resp = requests.get(api_url, headers=HEADERS, timeout=10)
+        scraper = get_scraper()
+        resp = scraper.get(api_url, timeout=10)
         
         if resp.status_code == 200:
             data = resp.json().get("event", {})
@@ -265,8 +265,8 @@ def ejecutar_analisis_diario_21pm():
 
     url_api = f"https://api.sofascore.com/api/v3/sport/football/scheduled-events/{manana}"
     try:
-        session = requests.Session()
-        resp = session.get(url_api, headers=HEADERS, timeout=15)
+        scraper = get_scraper()
+        resp = scraper.get(url_api, timeout=15)
         
         if resp.status_code == 200:
             events = resp.json().get("events", [])
@@ -373,5 +373,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-    
