@@ -412,7 +412,6 @@ Apuesta derecha con 85% de probabilidad: {apuesta_derecha_txt}
 
 
 def analyze_all_matches(target_matches=None):
-    # Si no se pasan partidos manualmente al programador, se usa la lista por defecto
     if target_matches is None:
         target_matches = [
             {
