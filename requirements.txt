@@ -3,3 +3,5 @@ numpy
 curl_cffi
 apscheduler
 flask
+playwright
+schedule
