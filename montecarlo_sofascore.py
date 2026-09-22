@@ -6,7 +6,8 @@ import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
-app = Flask(__name__)
+
+app = Flask(_name_)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
 
@@ -49,6 +50,7 @@ def renderizar_liga_a_imagen_4k(html_codigo, nombre_archivo="reporte_liga.png"):
         page.locator("body").screenshot(path=nombre_archivo, full_page=True)
         browser.close()
     return nombre_archivo
+
 def job():
     print("⏰ Ejecutando análisis programado de las 9:00 PM...")
     
@@ -91,17 +93,6 @@ def job():
         time.sleep(3)
         if os.path.exists(nombre_foto):
             os.remove(nombre_foto)
-
-
-@app.route("/")
-def health_check():
-    try:
-        # Ejecuta la función principal que procesa y envía a Telegram
-        job() 
-        return "Análisis ejecutado y enviado a Telegram correctamente.", 200
-    except Exception as e:
-        return f"Error durante la ejecución: {str(e)}", 500
-
 
 def run_monte_carlo_analysis(match, n_simulations=10000):
     exp_goals_home = match.get("exp_g_home", 1.6)
@@ -252,181 +243,54 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     }
     return sim
 
-
 def generar_reporte_partido(match, sim):
     mercados_evaluados = [
         ("Ambos anotan", sim["btts_yes"]),
         ("Ambos no anotan", sim["btts_no"]),
         (f"Over {sim['goles_linea']} goles partido", sim["goles_over"]),
         (f"Under {sim['goles_linea']} goles partido", sim["goles_under"]),
-        (
-            f"Over {sim['goles_1t_linea']} goles 1er tiempo",
-            sim["goles_1t_over"],
-        ),
-        (
-            f"Under {sim['goles_1t_linea']} goles 1er tiempo",
-            sim["goles_1t_under"],
-        ),
-        (
-            f"Over {sim['corners_totales_over_linea']} corners entre ambos",
-            sim["corners_totales_over"],
-        ),
-        (
-            f"Under {sim['corners_totales_under_linea']} corners entre ambos",
-            sim["corners_totales_under"],
-        ),
-        (
-            f"Over {sim['corners_home_over_linea']} corners {match['home']}",
-            sim["corners_home_over"],
-        ),
-        (
-            f"Under {sim['corners_home_under_linea']} corners {match['home']}",
-            sim["corners_home_under"],
-        ),
-        (
-            f"Over {sim['corners_away_over_linea']} corners {match['away']}",
-            sim["corners_away_over"],
-        ),
-        (
-            f"Under {sim['corners_away_under_linea']} corners {match['away']}",
-            sim["corners_away_under"],
-        ),
-        (
-            f"Over {sim['cards_totales_over_linea']} tarjetas entre ambos",
-            sim["cards_totales_over"],
-        ),
-        (
-            f"Under {sim['cards_totales_under_linea']} tarjetas entre ambos",
-            sim["cards_totales_under"],
-        ),
-        (
-            f"Over {sim['cards_home_over_linea']} tarjetas {match['home']}",
-            sim["cards_home_over"],
-        ),
-        (
-            f"Under {sim['cards_home_under_linea']} tarjetas {match['home']}",
-            sim["cards_home_under"],
-        ),
-        (
-            f"Over {sim['cards_away_over_linea']} tarjetas {match['away']}",
-            sim["cards_away_over"],
-        ),
-        (
-            f"Under {sim['cards_away_under_linea']} tarjetas {match['away']}",
-            sim["cards_away_under"],
-        ),
-        (
-            f"Over {sim['offsides_totales_linea']} fueras de lugar entre ambos",
-            sim["offsides_totales_over"],
-        ),
-        (
-            f"Under {sim['offsides_totales_under_linea']} fueras de lugar entre ambos",
-            sim["offsides_totales_under"],
-        ),
-        (
-            f"Over {sim['offsides_home_linea']} fueras de lugar {match['home']}",
-            sim["offsides_home_over"],
-        ),
-        (
-            f"Under {sim['offsides_home_under_linea']} fueras de lugar {match['home']}",
-            sim["offsides_home_under"],
-        ),
-        (
-            f"Over {sim['offsides_away_linea']} fueras de lugar {match['away']}",
-            sim["offsides_away_over"],
-        ),
-        (
-            f"Under {sim['offsides_away_under_linea']} fueras de lugar {match['away']}",
-            sim["offsides_away_under"],
-        ),
-        (
-            f"Over {sim['saves_totales_linea']} atajadas entre ambos porteros",
-            sim["saves_totales_over"],
-        ),
-        (
-            f"Under {sim['saves_totales_under_linea']} atajadas entre ambos porteros",
-            sim["saves_totales_under"],
-        ),
-        (
-            f"Over {sim['saves_home_linea']} atajadas portero {match['home']}",
-            sim["saves_home_over"],
-        ),
-        (
-            f"Over {sim['saves_away_linea']} atajadas portero {match['away']}",
-            sim["saves_away_over"],
-        ),
-        (
-            f"Over {sim['sot_totales_linea']} remates a portería entre ambos",
-            sim["sot_totales_over"],
-        ),
-        (
-            f"Under {sim['sot_totales_under_linea']} remates a portería entre ambos",
-            sim["sot_totales_under"],
-        ),
-        (
-            f"Over {sim['sot_home_linea']} remates a portería {match['home']}",
-            sim["sot_home_over"],
-        ),
-        (
-            f"Under {sim['sot_home_under_linea']} remates a portería {match['home']}",
-            sim["sot_home_under"],
-        ),
-        (
-            f"Over {sim['sot_away_linea']} remates a portería {match['away']}",
-            sim["sot_away_over"],
-        ),
-        (
-            f"Under {sim['sot_away_under_linea']} remates a portería {match['away']}",
-            sim["sot_away_under"],
-        ),
-        (
-            f"Over {sim['shots_totales_linea']} remates totales entre ambos",
-            sim["shots_totales_over"],
-        ),
-        (
-            f"Under {sim['shots_totales_under_linea']} remates totales entre ambos",
-            sim["shots_totales_under"],
-        ),
-        (
-            f"Over {sim['shots_home_linea']} remates totales {match['home']}",
-            sim["shots_home_over"],
-        ),
-        (
-            f"Under {sim['shots_home_under_linea']} remates totales {match['home']}",
-            sim["shots_home_under"],
-        ),
-        (
-            f"Over {sim['shots_away_linea']} remates totales {match['away']}",
-            sim["shots_away_over"],
-        ),
-        (
-            f"Under {sim['shots_away_under_linea']} remates totales {match['away']}",
-            sim["shots_away_under"],
-        ),
-        (
-            f"Over {sim['fouls_totales_linea']} faltas entre ambos",
-            sim["fouls_totales_over"],
-        ),
-        (
-            f"Under {sim['fouls_totales_under_linea']} faltas entre ambos",
-            sim["fouls_totales_under"],
-        ),
-        (
-            f"Over {sim['fouls_home_linea']} faltas {match['home']}",
-            sim["fouls_home_over"],
-        ),
-        (
-            f"Under {sim['fouls_home_under_linea']} faltas {match['home']}",
-            sim["fouls_home_under"],
-        ),
-        (
-            f"Over {sim['fouls_away_linea']} faltas {match['away']}",
-            sim["fouls_away_over"],
-        ),
-        (
-            f"Under {sim['fouls_away_under_linea']} faltas {match['away']}",
-            sim["fouls_away_under"],
-        ),
+        (f"Over {sim['goles_1t_linea']} goles 1er tiempo", sim["goles_1t_over"]),
+        (f"Under {sim['goles_1t_linea']} goles 1er tiempo", sim["goles_1t_under"]),
+        (f"Over {sim['corners_totales_over_linea']} corners entre ambos", sim["corners_totales_over"]),
+        (f"Under {sim['corners_totales_under_linea']} corners entre ambos", sim["corners_totales_under"]),
+        (f"Over {sim['corners_home_over_linea']} corners {match['home']}", sim["corners_home_over"]),
+        (f"Under {sim['corners_home_under_linea']} corners {match['home']}", sim["corners_home_under"]),
+        (f"Over {sim['corners_away_over_linea']} corners {match['away']}", sim["corners_away_over"]),
+        (f"Under {sim['corners_away_under_linea']} corners {match['away']}", sim["corners_away_under"]),
+        (f"Over {sim['cards_totales_over_linea']} tarjetas entre ambos", sim["cards_totales_over"]),
+        (f"Under {sim['cards_totales_under_linea']} tarjetas entre ambos", sim["cards_totales_under"]),
+        (f"Over {sim['cards_home_over_linea']} tarjetas {match['home']}", sim["cards_home_over"]),
+        (f"Under {sim['cards_home_under_linea']} tarjetas {match['home']}", sim["cards_home_under"]),
+        (f"Over {sim['cards_away_over_linea']} tarjetas {match['away']}", sim["cards_away_over"]),
+        (f"Under {sim['cards_away_under_linea']} tarjetas {match['away']}", sim["cards_away_under"]),
+        (f"Over {sim['offsides_totales_linea']} fueras de lugar entre ambos", sim["offsides_totales_over"]),
+        (f"Under {sim['offsides_totales_under_linea']} fueras de lugar entre ambos", sim["offsides_totales_under"]),
+        (f"Over {sim['offsides_home_linea']} fueras de lugar {match['home']}", sim["offsides_home_over"]),
+        (f"Under {sim['offsides_home_under_linea']} fueras de lugar {match['home']}", sim["offsides_home_under"]),
+        (f"Over {sim['offsides_away_linea']} fueras de lugar {match['away']}", sim["offsides_away_over"]),
+        (f"Under {sim['offsides_away_under_linea']} fueras de lugar {match['away']}", sim["offsides_away_under"]),
+        (f"Over {sim['saves_totales_linea']} atajadas entre ambos porteros", sim["saves_totales_over"]),
+        (f"Under {sim['saves_totales_under_linea']} atajadas entre ambos porteros", sim["saves_totales_under"]),
+        (f"Over {sim['saves_home_linea']} atajadas portero {match['home']}", sim["saves_home_over"]),
+        (f"Over {sim['saves_away_linea']} atajadas portero {match['away']}", sim["saves_away_over"]),
+        (f"Over {sim['sot_totales_linea']} remates a portería entre ambos", sim["sot_totales_over"]),
+        (f"Under {sim['sot_totales_under_linea']} remates a portería entre ambos", sim["sot_totales_under"]),
+        (f"Over {sim['sot_home_linea']} remates a portería {match['home']}", sim["sot_home_over"]),
+        (f"Under {sim['sot_home_under_linea']} remates a portería {match['home']}", sim["sot_home_under"]),
+        (f"Over {sim['sot_away_linea']} remates a portería {match['away']}", sim["sot_away_over"]),
+        (f"Under {sim['sot_away_under_linea']} remates a portería {match['away']}", sim["sot_away_under"]),
+        (f"Over {sim['shots_totales_linea']} remates totales entre ambos", sim["shots_totales_over"]),
+        (f"Under {sim['shots_totales_under_linea']} remates totales entre ambos", sim["shots_totales_under"]),
+        (f"Over {sim['shots_home_linea']} remates totales {match['home']}", sim["shots_home_over"]),
+        (f"Under {sim['shots_home_under_linea']} remates totales {match['home']}", sim["shots_home_under"]),
+        (f"Over {sim['shots_away_linea']} remates totales {match['away']}", sim["shots_away_over"]),
+        (f"Under {sim['shots_away_under_linea']} remates totales {match['away']}", sim["shots_away_under"]),
+        (f"Over {sim['fouls_totales_linea']} faltas entre ambos", sim["fouls_totales_over"]),
+        (f"Under {sim['fouls_totales_under_linea']} faltas entre ambos", sim["fouls_totales_under"]),
+        (f"Over {sim['fouls_home_linea']} faltas {match['home']}", sim["fouls_home_over"]),
+        (f"Under {sim['fouls_home_under_linea']} faltas {match['home']}", sim["fouls_home_under"]),
+        (f"Over {sim['fouls_away_linea']} faltas {match['away']}", sim["fouls_away_over"]),
+        (f"Under {sim['fouls_away_under_linea']} faltas {match['away']}", sim["fouls_away_under"]),
         ("Penalti en el encuentro - Sí", sim["penalty_yes"]),
         ("Penalti en el encuentro - No", sim["penalty_no"]),
         (f"{match['home']} marca en ambos tiempos", sim["score_both_halves_home"]),
@@ -507,7 +371,6 @@ Apuesta derecha con 85% de probabilidad: {apuesta_derecha_txt}
 """
     return reporte_texto
 
-
 def analyze_all_matches(target_matches=None):
     if target_matches is None:
         target_matches = [
@@ -542,10 +405,10 @@ def analyze_all_matches(target_matches=None):
     salida_final = "\n" + "=" * 40 + "\n".join(reportes)
     print(salida_final)
     return salida_final
+
 @app.route("/", methods=["GET", "HEAD"])
 def index():
     return "Bot Monte Carlo activo y programado a las 9:00 PM", 200
-
 
 def procesar_partido_background(url_raw, chat_id):
     try:
@@ -577,7 +440,6 @@ def procesar_partido_background(url_raw, chat_id):
         print(f"Error detallado en background: {e}")
         send_telegram_message(f"⚠️ Error procesando el partido: {str(e)}", chat_id=chat_id)
 
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -606,68 +468,7 @@ def webhook():
 
     return "OK", 200
 
-        if "sofascore.com" in text:
-            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
-            
-            words = text.split()
-            url = next((w.strip() for w in words if "sofascore.com" in w), None)
-
-            if url:
-                # Usa multiprocessing en lugar de threading para Playwright
-                proceso = multiprocessing.Process(target=procesar_partido_background, args=(url, chat_id))
-                proceso.start()
-            else:
-                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
-
-    except Exception as e:
-        print(f"Error en Webhook: {e}")
-
-    return "OK", 200
-      
-
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        text = (message.get("text") or message.get("caption") or "").strip()
-
-        if "sofascore.com" in text:
-            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
-            
-            words = text.split()
-            url = next((w.strip() for w in words if "sofascore.com" in w), None)
-
-            if url:
-                # multiprocessing.Process aisla Playwright para que no truene con hilos
-                proceso = multiprocessing.Process(target=procesar_partido_background, args=(url, chat_id))
-                proceso.start()
-            else:
-                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
-
-    except Exception as e:
-        print(f"Error en Webhook: {e}")
-
-    return "OK", 200
-
-        message = data["message"]
-        chat_id = message["chat"]["id"]
-        text = (message.get("text") or message.get("caption") or "").strip()
-
-        if "sofascore.com" in text:
-            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
-            
-            words = text.split()
-            url = next((w.strip() for w in words if "sofascore.com" in w), None)
-
-            if url:
-                hilo = threading.Thread(target=procesar_partido_background, args=(url, chat_id))
-                hilo.start()
-            else:
-                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
-
-    except Exception as e:
-        print(f"Error en Webhook: {e}")
-
-    return "OK", 200
-if __name__ == "__main__":
+if _name_ == "_main_":
     scheduler = BackgroundScheduler(timezone="America/Mexico_City")
     scheduler.add_job(job, 'cron', hour=21, minute=0)
     scheduler.start()
