@@ -596,7 +596,7 @@ def iniciar_bot():
             pass
         time.sleep(2)
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     # Iniciar servidor web Flask en segundo plano para Render
     threading.Thread(target=ejecutar_servidor_web, daemon=True).start()
     # Iniciar motor del bot
