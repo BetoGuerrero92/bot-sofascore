@@ -8,7 +8,7 @@ from curl_cffi import requests as cffi_requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 # Lista de torneos y ligas a filtrar en SofaScore
 TARGET_LEAGUES = [
