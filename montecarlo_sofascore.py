@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import requests
+import threading
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
@@ -546,47 +547,62 @@ def analyze_all_matches(target_matches=None):
 @app.route("/")
 def index():
     return "Bot Monte Carlo activo y programado a las 9:00 PM"
+def procesar_partido_background(url, chat_id):
+    try:
+        partido = obtener_partido_por_url(url)
+        
+        if not partido:
+            send_telegram_message("❌ No se pudieron obtener los datos de ese enlace de SofaScore.", chat_id=chat_id)
+            return
+            
+        with open("plantilla_partido.html", "r", encoding="utf-8") as f:
+            html_base = f.read()
+            
+        html_card = generar_card_partido_html(partido)
+        nombre_liga = partido.get("league_name", "ANÁLISIS INDIVIDUAL")
+        
+        html_final = html_base.replace("{{ NOMBRE_LIGA }}", nombre_liga.upper())
+        html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_card)
+        
+        nombre_foto = f"reporte_custom_{chat_id}.png"
+        renderizar_liga_a_imagen_4k(html_final, nombre_foto)
+        
+        caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
+        send_telegram_photo(nombre_foto, caption=caption, chat_id=chat_id)
+        
+        if os.path.exists(nombre_foto):
+            os.remove(nombre_foto)
+            
+    except Exception as e:
+        print(f"Error procesando partido en background: {e}")
+        send_telegram_message(f"⚠️ Ocurrió un error al procesar el partido: {e}", chat_id=chat_id)
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True, silent=True)
-    if not data or "message" not in data:
-        return "OK", 200
+    try:
+        data = request.get_json(force=True, silent=True)
+        if not data or "message" not in data:
+            return "OK", 200
 
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "").strip()
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = (message.get("text") or message.get("caption") or "").strip()
 
-    if "sofascore.com" in text:
-        send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
-        try:
-            url = [word for word in text.split() if "sofascore.com" in word][0]
-            partido = obtener_partido_por_url(url)
+        if "sofascore.com" in text:
+            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
             
-            if not partido:
-                send_telegram_message("❌ No se pudieron obtener los datos de ese enlace de SofaScore.", chat_id=chat_id)
-                return "OK", 200
-                
-            with open("plantilla_partido.html", "r", encoding="utf-8") as f:
-                html_base = f.read()
-                
-            html_card = generar_card_partido_html(partido)
-            nombre_liga = partido.get("league_name", "ANÁLISIS INDIVIDUAL")
-            
-            html_final = html_base.replace("{{ NOMBRE_LIGA }}", nombre_liga.upper())
-            html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_card)
-            
-            nombre_foto = f"reporte_custom_{chat_id}.png"
-            renderizar_liga_a_imagen_4k(html_final, nombre_foto)
-            
-            caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
-            send_telegram_photo(nombre_foto, caption=caption, chat_id=chat_id)
-            
-            if os.path.exists(nombre_foto):
-                os.remove(nombre_foto)
-                
-        except Exception as e:
-            print(f"Error en solicitud individual: {e}")
-            send_telegram_message(f"⚠️ Ocurrió un error al procesar el partido: {e}", chat_id=chat_id)
+            words = text.split()
+            url = next((w.strip() for w in words if "sofascore.com" in w), None)
+
+            if url:
+                hilo = threading.Thread(target=procesar_partido_background, args=(url, chat_id))
+                hilo.start()
+            else:
+                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
+
+    except Exception as e:
+        print(f"Error en Webhook: {e}")
 
     return "OK", 200
 if __name__ == "__main__":
