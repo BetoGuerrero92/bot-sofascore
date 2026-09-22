@@ -1,265 +1,428 @@
-import os
-import logging
-from datetime import datetime, timedelta
-import numpy as np
-from flask import Flask, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
-from curl_cffi import requests as cffi_requests
+import numpy as np
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-app = Flask(__name__)
+def run_monte_carlo_analysis(match, n_simulations=10000):
+    """Ejecuta N simulaciones de Monte Carlo para un partido y calcula
 
-# Lista de torneos y ligas a filtrar en SofaScore
-TARGET_LEAGUES = [
-    "Liga MX", "Liga de Expansión MX", "Liga de Expansion MX",
-    "UEFA Champions League", "UEFA Europa League", "UEFA Conference League", "UEFA Nations League",
-    "LaLiga", "La Liga", "Copa del Rey",
-    "Premier League", "EFL Cup", "Championship", "League One",
-    "Serie A", "Coppa Italia", "Copa Italia",
-    "Bundesliga", "DFB-Pokal", "Copa de Alemania",
-    "Ligue 1", "Coupe de France",
-    "Eredivisie", "KNVB Beker",
-    "Primeira Liga", "Pro League", "First Division A",
-    "Scottish Premiership", "Super Lig", "CONCACAF Nations League"
-]
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "/",
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Referer": "https://www.sofascore.com/",
-    "Origin": "https://www.sofascore.com"
-}
-
-SIMULATIONS = 100_000
-
-def fetch_sofascore_events(date_str):
-    """Obtiene los eventos programados en SofaScore para la fecha solicitada."""
-    url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{date_str}"
-    try:
-        response = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('events', [])
-        else:
-            logging.error(f"Error al consultar SofaScore API: Status {response.status_code}")
-            return []
-    except Exception as e:
-        logging.error(f"Excepción al conectar con SofaScore: {e}")
-        return []
-
-def get_team_stats(team_id):
+    las probabilidades de los 15 mercados requeridos.
     """
-    Obtiene las estadísticas promedio recientes del equipo desde SofaScore.
-    Si no hay datos disponibles, retorna estimaciones promedio por defecto.
-    """
-    url = f"https://api.sofascore.com/api/v1/team/{team_id}/events/last/0"
-    try:
-        res = cffi_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=5)
-        if res.status_code == 200:
-            events = res.json().get('events', [])[:5]
-            if events:
-                # Extracción rápida de promedios de últimos partidos
-                return {
-                    "goals": max(0.8, np.mean([e.get('homeScore', {}).get('current', 1) for e in events])),
-                    "corners": 5.0,
-                    "cards": 2.2,
-                    "offsides": 1.8,
-                    "shots": 4.5
-                }
-    except Exception:
-        pass
-    return {"goals": 1.3, "corners": 4.8, "cards": 2.0, "offsides": 1.5, "shots": 4.2}
+    exp_goals_home = match.get("exp_g_home", 1.6)
+    exp_goals_away = match.get("exp_g_away", 1.2)
+    exp_corners_home = match.get("exp_c_home", 5.2)
+    exp_corners_away = match.get("exp_c_away", 4.1)
+    exp_cards_home = match.get("exp_card_home", 2.1)
+    exp_cards_away = match.get("exp_card_away", 2.4)
+    exp_offsides_home = match.get("exp_off_home", 2.0)
+    exp_offsides_away = match.get("exp_off_away", 1.8)
+    exp_saves_home = match.get("exp_sav_home", 3.2)
+    exp_saves_away = match.get("exp_sav_away", 3.8)
+    exp_sot_home = match.get("exp_sot_home", 5.1)
+    exp_sot_away = match.get("exp_sot_away", 4.3)
+    exp_shots_home = match.get("exp_sh_home", 13.5)
+    exp_shots_away = match.get("exp_sh_away", 11.2)
+    exp_fouls_home = match.get("exp_foul_home", 11.8)
+    exp_fouls_away = match.get("exp_foul_away", 12.5)
 
-def simulate_poisson(lambda_param, size=SIMULATIONS):
-    if lambda_param <= 0:
-        lambda_param = 0.1
-    return np.random.poisson(lambda_param, size)
+    gh = np.random.poisson(exp_goals_home, n_simulations)
+    ga = np.random.poisson(exp_goals_away, n_simulations)
 
-def run_monte_carlo_analysis(match_info):
-    home = match_info['home_team']
-    away = match_info['away_team']
+    gh_1t = np.random.binomial(gh, 0.45)
+    ga_1t = np.random.binomial(ga, 0.45)
+    gh_2t = gh - gh_1t
+    ga_2t = ga - ga_1t
 
-    exp_goals_h = match_info.get('exp_goals_home', 1.4)
-    exp_goals_a = match_info.get('exp_goals_away', 1.1)
-    exp_corners_h = match_info.get('exp_corners_home', 5.0)
-    exp_corners_a = match_info.get('exp_corners_away', 4.2)
-    exp_cards_h = match_info.get('exp_cards_home', 2.0)
-    exp_cards_a = match_info.get('exp_cards_away', 2.3)
-    exp_offsides_h = match_info.get('exp_offsides_home', 1.7)
-    exp_offsides_a = match_info.get('exp_offsides_away', 1.5)
-    exp_shots_h = match_info.get('exp_shots_home', 4.5)
-    exp_shots_a = match_info.get('exp_shots_away', 3.8)
+    ch = np.random.poisson(exp_corners_home, n_simulations)
+    ca = np.random.poisson(exp_corners_away, n_simulations)
+    card_h = np.random.poisson(exp_cards_home, n_simulations)
+    card_a = np.random.poisson(exp_cards_away, n_simulations)
+    off_h = np.random.poisson(exp_offsides_home, n_simulations)
+    off_a = np.random.poisson(exp_offsides_away, n_simulations)
+    sav_h = np.random.poisson(exp_saves_home, n_simulations)
+    sav_a = np.random.poisson(exp_saves_away, n_simulations)
+    sot_h = np.random.poisson(exp_sot_home, n_simulations)
+    sot_a = np.random.poisson(exp_sot_away, n_simulations)
+    sh_h = np.random.poisson(exp_shots_home, n_simulations)
+    sh_a = np.random.poisson(exp_shots_away, n_simulations)
+    foul_h = np.random.poisson(exp_fouls_home, n_simulations)
+    foul_a = np.random.poisson(exp_fouls_away, n_simulations)
+    penalties = np.random.binomial(1, 0.22, n_simulations)
 
-    # 100,000 Simulaciones
-    sim_goals_h = simulate_poisson(exp_goals_h)
-    sim_goals_a = simulate_poisson(exp_goals_a)
-    sim_goals_total = sim_goals_h + sim_goals_a
-
-    sim_ht_goals_h = simulate_poisson(exp_goals_h * 0.45)
-    sim_ht_goals_a = simulate_poisson(exp_goals_a * 0.45)
-    sim_ht_goals_total = sim_ht_goals_h + sim_ht_goals_a
-
-    sim_corners_h = simulate_poisson(exp_corners_h)
-    sim_corners_a = simulate_poisson(exp_corners_a)
-    sim_corners_total = sim_corners_h + sim_corners_a
-
-    sim_cards_h = simulate_poisson(exp_cards_h)
-    sim_cards_a = simulate_poisson(exp_cards_a)
-    sim_cards_total = sim_cards_h + sim_cards_a
-
-    sim_offsides_total = simulate_poisson(exp_offsides_h) + simulate_poisson(exp_offsides_a)
-    sim_shots_total = simulate_poisson(exp_shots_h) + simulate_poisson(exp_shots_a)
-
-    markets = {}
-
-    # GOLES PARTIDO
-    for line in [1.5, 2.5, 3.5]:
-        over_pct = float(np.mean(sim_goals_total > line) * 100)
-        markets[f"Goles Partido Over {line}"] = round(over_pct, 2)
-        markets[f"Goles Partido Under {line}"] = round(100.0 - over_pct, 2)
-
-    # GOLES 1ER TIEMPO
-    for line in [0.5, 1.5]:
-        over_pct = float(np.mean(sim_ht_goals_total > line) * 100)
-        markets[f"Goles 1er Tiempo Over {line}"] = round(over_pct, 2)
-        markets[f"Goles 1er Tiempo Under {line}"] = round(100.0 - over_pct, 2)
-
-    # GOLES INDIVIDUALES
-    markets[f"Goles {home} Over 1.5"] = round(float(np.mean(sim_goals_h > 1.5) * 100), 2)
-    markets[f"Goles {home} Under 1.5"] = round(100.0 - markets[f"Goles {home} Over 1.5"], 2)
-    markets[f"Goles {away} Over 1.5"] = round(float(np.mean(sim_goals_a > 1.5) * 100), 2)
-    markets[f"Goles {away} Under 1.5"] = round(100.0 - markets[f"Goles {away} Over 1.5"], 2)
-
-    # CÓRNERS PARTIDO & INDIVIDUAL
-    for line in [8.5, 9.5, 10.5]:
-        over_pct = float(np.mean(sim_corners_total > line) * 100)
-        markets[f"Córners Partido Over {line}"] = round(over_pct, 2)
-        markets[f"Córners Partido Under {line}"] = round(100.0 - over_pct, 2)
-
-    markets[f"Córners {home} Over 4.5"] = round(float(np.mean(sim_corners_h > 4.5) * 100), 2)
-    markets[f"Córners {home} Under 4.5"] = round(100.0 - markets[f"Córners {home} Over 4.5"], 2)
-    markets[f"Córners {away} Over 4.5"] = round(float(np.mean(sim_corners_a > 4.5) * 100), 2)
-    markets[f"Córners {away} Under 4.5"] = round(100.0 - markets[f"Córners {away} Over 4.5"], 2)
-
-    # TARJETAS PARTIDO & INDIVIDUAL
-    for line in [3.5, 4.5, 5.5]:
-        over_pct = float(np.mean(sim_cards_total > line) * 100)
-        markets[f"Tarjetas Partido Over {line}"] = round(over_pct, 2)
-        markets[f"Tarjetas Partido Under {line}"] = round(100.0 - over_pct, 2)
-
-    markets[f"Tarjetas {home} Over 1.5"] = round(float(np.mean(sim_cards_h > 1.5) * 100), 2)
-    markets[f"Tarjetas {home} Under 1.5"] = round(100.0 - markets[f"Tarjetas {home} Over 1.5"], 2)
-
-    # AMBOS ANOTAN
-    btts_yes = float(np.mean((sim_goals_h > 0) & (sim_goals_a > 0)) * 100)
-    markets["Ambos Anotan SÍ"] = round(btts_yes, 2)
-    markets["Ambos Anotan NO"] = round(100.0 - btts_yes, 2)
-
-    # MONEYLINE & DOBLE CHANCE
-    p_home_win = float(np.mean(sim_goals_h > sim_goals_a) * 100)
-    p_draw = float(np.mean(sim_goals_h == sim_goals_a) * 100)
-    p_away_win = float(np.mean(sim_goals_a > sim_goals_h) * 100)
-
-    markets[f"Victoria {home} (1)"] = round(p_home_win, 2)
-    markets["Empate (X)"] = round(p_draw, 2)
-    markets[f"Victoria {away} (2)"] = round(p_away_win, 2)
-
-    markets[f"Doble Oportunidad 1X ({home} o Empate)"] = round(p_home_win + p_draw, 2)
-    markets[f"Doble Oportunidad X2 ({away} o Empate)"] = round(p_away_win + p_draw, 2)
-    markets["Doble Oportunidad 12 (Sin Empate)"] = round(p_home_win + p_away_win, 2)
-
-    # PRIMERO EN ANOTAR
-    total_exp_g = exp_goals_h + exp_goals_a
-    p_first_h = (exp_goals_h / total_exp_g * 100) if total_exp_g > 0 else 50.0
-    markets[f"Anota Primero {home}"] = round(p_first_h, 2)
-    markets[f"Anota Primero {away}"] = round(100.0 - p_first_h, 2)
-
-    # TIROS Y FUERAS DE LUGAR
-    markets["Tiros a Puerta Over 8.5"] = round(float(np.mean(sim_shots_total > 8.5) * 100), 2)
-    markets["Fueras de Lugar Over 3.5"] = round(float(np.mean(sim_offsides_total > 3.5) * 100), 2)
-
-    return {
-        "match": f"{home} vs {away}",
-        "league": match_info.get('league', 'General'),
-        "markets": markets
+    sim = {
+        "goles_linea": 2.5,
+        "goles_1t_linea": 0.5,
+        "corners_totales_over_linea": 8.5,
+        "corners_totales_under_linea": 11.5,
+        "corners_home_over_linea": 3.5,
+        "corners_home_under_linea": 5.5,
+        "corners_away_over_linea": 5.5,
+        "corners_away_under_linea": 8.5,
+        "cards_totales_over_linea": 3.5,
+        "cards_totales_under_linea": 5.5,
+        "cards_home_over_linea": 1.5,
+        "cards_home_under_linea": 2.5,
+        "cards_away_over_linea": 1.5,
+        "cards_away_under_linea": 2.5,
+        "offsides_totales_linea": 3.5,
+        "offsides_totales_under_linea": 5.5,
+        "offsides_home_linea": 1.5,
+        "offsides_home_under_linea": 2.5,
+        "offsides_away_linea": 1.5,
+        "offsides_away_under_linea": 2.5,
+        "saves_totales_linea": 5.5,
+        "saves_totales_under_linea": 7.5,
+        "saves_home_linea": 2.5,
+        "saves_away_linea": 2.5,
+        "sot_totales_linea": 8.5,
+        "sot_totales_under_linea": 10.5,
+        "sot_home_linea": 4.5,
+        "sot_home_under_linea": 6.5,
+        "sot_away_linea": 4.5,
+        "sot_away_under_linea": 6.5,
+        "shots_totales_linea": 22.5,
+        "shots_totales_under_linea": 26.5,
+        "shots_home_linea": 11.5,
+        "shots_home_under_linea": 14.5,
+        "shots_away_linea": 12.5,
+        "shots_away_under_linea": 15.5,
+        "fouls_totales_linea": 21.5,
+        "fouls_totales_under_linea": 25.5,
+        "fouls_home_linea": 10.5,
+        "fouls_home_under_linea": 13.5,
+        "fouls_away_linea": 11.5,
+        "fouls_away_under_linea": 14.5,
+        "btts_yes": np.mean((gh > 0) & (ga > 0)) * 100,
+        "btts_no": np.mean((gh == 0) | (ga == 0)) * 100,
+        "goles_over": np.mean((gh + ga) > 2.5) * 100,
+        "goles_under": np.mean((gh + ga) <= 2.5) * 100,
+        "goles_1t_over": np.mean((gh_1t + ga_1t) > 0.5) * 100,
+        "goles_1t_under": np.mean((gh_1t + ga_1t) <= 0.5) * 100,
+        "corners_totales_over": np.mean((ch + ca) > 8.5) * 100,
+        "corners_totales_under": np.mean((ch + ca) < 11.5) * 100,
+        "corners_home_over": np.mean(ch > 3.5) * 100,
+        "corners_home_under": np.mean(ch < 5.5) * 100,
+        "corners_away_over": np.mean(ca > 5.5) * 100,
+        "corners_away_under": np.mean(ca < 8.5) * 100,
+        "cards_totales_over": np.mean((card_h + card_a) > 3.5) * 100,
+        "cards_totales_under": np.mean((card_h + card_a) < 5.5) * 100,
+        "cards_home_over": np.mean(card_h > 1.5) * 100,
+        "cards_home_under": np.mean(card_h < 2.5) * 100,
+        "cards_away_over": np.mean(card_a > 1.5) * 100,
+        "cards_away_under": np.mean(card_a < 2.5) * 100,
+        "offsides_totales_over": np.mean((off_h + off_a) > 3.5) * 100,
+        "offsides_totales_under": np.mean((off_h + off_a) < 5.5) * 100,
+        "offsides_home_over": np.mean(off_h > 1.5) * 100,
+        "offsides_home_under": np.mean(off_h < 2.5) * 100,
+        "offsides_away_over": np.mean(off_a > 1.5) * 100,
+        "offsides_away_under": np.mean(off_a < 2.5) * 100,
+        "saves_totales_over": np.mean((sav_h + sav_a) > 5.5) * 100,
+        "saves_totales_under": np.mean((sav_h + sav_a) < 7.5) * 100,
+        "saves_home_over": np.mean(sav_h > 2.5) * 100,
+        "saves_away_over": np.mean(sav_a > 2.5) * 100,
+        "sot_totales_over": np.mean((sot_h + sot_a) > 8.5) * 100,
+        "sot_totales_under": np.mean((sot_h + sot_a) < 10.5) * 100,
+        "sot_home_over": np.mean(sot_h > 4.5) * 100,
+        "sot_home_under": np.mean(sot_h < 6.5) * 100,
+        "sot_away_over": np.mean(sot_a > 4.5) * 100,
+        "sot_away_under": np.mean(sot_a < 6.5) * 100,
+        "shots_totales_over": np.mean((sh_h + sh_a) > 22.5) * 100,
+        "shots_totales_under": np.mean((sh_h + sh_a) < 26.5) * 100,
+        "shots_home_over": np.mean(sh_h > 11.5) * 100,
+        "shots_home_under": np.mean(sh_h < 14.5) * 100,
+        "shots_away_over": np.mean(sh_a > 12.5) * 100,
+        "shots_away_under": np.mean(sh_a < 15.5) * 100,
+        "fouls_totales_over": np.mean((foul_h + foul_a) > 21.5) * 100,
+        "fouls_totales_under": np.mean((foul_h + foul_a) < 25.5) * 100,
+        "fouls_home_over": np.mean(foul_h > 10.5) * 100,
+        "fouls_home_under": np.mean(foul_h < 13.5) * 100,
+        "fouls_away_over": np.mean(foul_a > 11.5) * 100,
+        "fouls_away_under": np.mean(foul_a < 14.5) * 100,
+        "penalty_yes": np.mean(penalties == 1) * 100,
+        "penalty_no": np.mean(penalties == 0) * 100,
+        "score_both_halves_home": np.mean((gh_1t > 0) & (gh_2t > 0)) * 100,
+        "score_both_halves_away": np.mean((ga_1t > 0) & (ga_2t > 0)) * 100,
+        "ml_home": np.mean(gh > ga) * 100,
+        "ml_draw": np.mean(gh == ga) * 100,
+        "ml_away": np.mean(ga > gh) * 100,
+        "dc_1x": np.mean(gh >= ga) * 100,
+        "dc_x2": np.mean(ga >= gh) * 100,
+        "dc_12": np.mean(gh != ga) * 100,
+        "first_goal_home": np.mean((gh > 0) & (gh_1t >= ga_1t)) * 100,
+        "first_goal_away": np.mean((ga > 0) & (ga_1t > gh_1t)) * 100,
+        "first_goal_none": np.mean((gh == 0) & (ga == 0)) * 100,
+        "win_half_home": np.mean((gh_1t > ga_1t) | (gh_2t > ga_2t)) * 100,
+        "win_half_away": np.mean((ga_1t > gh_1t) | (ga_2t > gh_2t)) * 100,
     }
+    return sim
 
-def analyze_all_matches():
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    logging.info(f"--- BARRIDO REAL DE SOFASCORE PARA MAÑANA ({tomorrow}) ---")
 
-    raw_events = fetch_sofascore_events(tomorrow)
-    target_matches = []
+def generar_reporte_partido(match, sim):
+    mercados_evaluados = [
+        ("Ambos anotan", sim["btts_yes"]),
+        ("Ambos no anotan", sim["btts_no"]),
+        (f"Over {sim['goles_linea']} goles partido", sim["goles_over"]),
+        (f"Under {sim['goles_linea']} goles partido", sim["goles_under"]),
+        (
+            f"Over {sim['goles_1t_linea']} goles 1er tiempo",
+            sim["goles_1t_over"],
+        ),
+        (
+            f"Under {sim['goles_1t_linea']} goles 1er tiempo",
+            sim["goles_1t_under"],
+        ),
+        (
+            f"Over {sim['corners_totales_over_linea']} corners entre ambos",
+            sim["corners_totales_over"],
+        ),
+        (
+            f"Under {sim['corners_totales_under_linea']} corners entre ambos",
+            sim["corners_totales_under"],
+        ),
+        (
+            f"Over {sim['corners_home_over_linea']} corners {match['home']}",
+            sim["corners_home_over"],
+        ),
+        (
+            f"Under {sim['corners_home_under_linea']} corners {match['home']}",
+            sim["corners_home_under"],
+        ),
+        (
+            f"Over {sim['corners_away_over_linea']} corners {match['away']}",
+            sim["corners_away_over"],
+        ),
+        (
+            f"Under {sim['corners_away_under_linea']} corners {match['away']}",
+            sim["corners_away_under"],
+        ),
+        (
+            f"Over {sim['cards_totales_over_linea']} tarjetas entre ambos",
+            sim["cards_totales_over"],
+        ),
+        (
+            f"Under {sim['cards_totales_under_linea']} tarjetas entre ambos",
+            sim["cards_totales_under"],
+        ),
+        (
+            f"Over {sim['cards_home_over_linea']} tarjetas {match['home']}",
+            sim["cards_home_over"],
+        ),
+        (
+            f"Under {sim['cards_home_under_linea']} tarjetas {match['home']}",
+            sim["cards_home_under"],
+        ),
+        (
+            f"Over {sim['cards_away_over_linea']} tarjetas {match['away']}",
+            sim["cards_away_over"],
+        ),
+        (
+            f"Under {sim['cards_away_under_linea']} tarjetas {match['away']}",
+            sim["cards_away_under"],
+        ),
+        (
+            f"Over {sim['offsides_totales_linea']} fueras de lugar entre ambos",
+            sim["offsides_totales_over"],
+        ),
+        (
+            f"Under {sim['offsides_totales_under_linea']} fueras de lugar entre ambos",
+            sim["offsides_totales_under"],
+        ),
+        (
+            f"Over {sim['offsides_home_linea']} fueras de lugar {match['home']}",
+            sim["offsides_home_over"],
+        ),
+        (
+            f"Under {sim['offsides_home_under_linea']} fueras de lugar {match['home']}",
+            sim["offsides_home_under"],
+        ),
+        (
+            f"Over {sim['offsides_away_linea']} fueras de lugar {match['away']}",
+            sim["offsides_away_over"],
+        ),
+        (
+            f"Under {sim['offsides_away_under_linea']} fueras de lugar {match['away']}",
+            sim["offsides_away_under"],
+        ),
+        (
+            f"Over {sim['saves_totales_linea']} atajadas entre ambos porteros",
+            sim["saves_totales_over"],
+        ),
+        (
+            f"Under {sim['saves_totales_under_linea']} atajadas entre ambos porteros",
+            sim["saves_totales_under"],
+        ),
+        (
+            f"Over {sim['saves_home_linea']} atajadas portero {match['home']}",
+            sim["saves_home_over"],
+        ),
+        (
+            f"Over {sim['saves_away_linea']} atajadas portero {match['away']}",
+            sim["saves_away_over"],
+        ),
+        (
+            f"Over {sim['sot_totales_linea']} remates a portería entre ambos",
+            sim["sot_totales_over"],
+        ),
+        (
+            f"Under {sim['sot_totales_under_linea']} remates a portería entre ambos",
+            sim["sot_totales_under"],
+        ),
+        (
+            f"Over {sim['sot_home_linea']} remates a portería {match['home']}",
+            sim["sot_home_over"],
+        ),
+        (
+            f"Under {sim['sot_home_under_linea']} remates a portería {match['home']}",
+            sim["sot_home_under"],
+        ),
+        (
+            f"Over {sim['sot_away_linea']} remates a portería {match['away']}",
+            sim["sot_away_over"],
+        ),
+        (
+            f"Under {sim['sot_away_under_linea']} remates a portería {match['away']}",
+            sim["sot_away_under"],
+        ),
+        (
+            f"Over {sim['shots_totales_linea']} remates totales entre ambos",
+            sim["shots_totales_over"],
+        ),
+        (
+            f"Under {sim['shots_totales_under_linea']} remates totales entre ambos",
+            sim["shots_totales_under"],
+        ),
+        (
+            f"Over {sim['shots_home_linea']} remates totales {match['home']}",
+            sim["shots_home_over"],
+        ),
+        (
+            f"Under {sim['shots_home_under_linea']} remates totales {match['home']}",
+            sim["shots_home_under"],
+        ),
+        (
+            f"Over {sim['shots_away_linea']} remates totales {match['away']}",
+            sim["shots_away_over"],
+        ),
+        (
+            f"Under {sim['shots_away_under_linea']} remates totales {match['away']}",
+            sim["shots_away_under"],
+        ),
+        (
+            f"Over {sim['fouls_totales_linea']} faltas entre ambos",
+            sim["fouls_totales_over"],
+        ),
+        (
+            f"Under {sim['fouls_totales_under_linea']} faltas entre ambos",
+            sim["fouls_totales_under"],
+        ),
+        (
+            f"Over {sim['fouls_home_linea']} faltas {match['home']}",
+            sim["fouls_home_over"],
+        ),
+        (
+            f"Under {sim['fouls_home_under_linea']} faltas {match['home']}",
+            sim["fouls_home_under"],
+        ),
+        (
+            f"Over {sim['fouls_away_linea']} faltas {match['away']}",
+            sim["fouls_away_over"],
+        ),
+        (
+            f"Under {sim['fouls_away_under_linea']} faltas {match['away']}",
+            sim["fouls_away_under"],
+        ),
+        ("Penalti en el encuentro - Sí", sim["penalty_yes"]),
+        ("Penalti en el encuentro - No", sim["penalty_no"]),
+        (f"{match['home']} marca en ambos tiempos", sim["score_both_halves_home"]),
+        (f"{match['away']} marca en ambos tiempos", sim["score_both_halves_away"]),
+        (f"Gana {match['home']}", sim["ml_home"]),
+        ("Empate", sim["ml_draw"]),
+        (f"Gana {match['away']}", sim["ml_away"]),
+        (f"Doble Oportunidad 1X ({match['home']} o Empate)", sim["dc_1x"]),
+        (f"Doble Oportunidad X2 ({match['away']} o Empate)", sim["dc_x2"]),
+        ("Doble Oportunidad 12 (Sin Empate)", sim["dc_12"]),
+        (f"Primer gol {match['home']}", sim["first_goal_home"]),
+        (f"Primer gol {match['away']}", sim["first_goal_away"]),
+        (f"{match['home']} gana alguna mitad", sim["win_half_home"]),
+        (f"{match['away']} gana alguna mitad", sim["win_half_away"]),
+    ]
 
-    for ev in raw_events:
-        tournament_name = ev.get('tournament', {}).get('name', '')
-        unique_t_name = ev.get('tournament', {}).get('uniqueTournament', {}).get('name', '')
+    candidatos_85 = [
+        (nombre, prob) for nombre, prob in mercados_evaluados if prob >= 85.0
+    ]
 
-        # Filtrar solo si el torneo está en nuestra lista de interés
-        match_league = None
-        for t in TARGET_LEAGUES:
-            if t.lower() in tournament_name.lower() or t.lower() in unique_t_name.lower():
-                match_league = t
-                break
+    if candidatos_85:
+        candidatos_85.sort(key=lambda x: x[1], reverse=True)
+        top_pick, top_prob = candidatos_85[0]
+        apuesta_derecha_txt = f"{top_pick} ({top_prob:.0f}%)"
+    else:
+        apuesta_derecha_txt = "Sin selecciones directas mayores o iguales al 85% para este partido"
 
-        if match_league:
-            home_team = ev.get('homeTeam', {}).get('name', 'Local')
-            away_team = ev.get('awayTeam', {}).get('name', 'Visitante')
-            home_id = ev.get('homeTeam', {}).get('id')
-            away_id = ev.get('awayTeam', {}).get('id')
+    reporte_texto = f"""
+{match['home']} vs {match['away']}
 
-            h_stats = get_team_stats(home_id) if home_id else {}
-            a_stats = get_team_stats(away_id) if away_id else {}
+Ambos anotan ({sim['btts_yes']:.0f}%) | Ambos no anotan ({sim['btts_no']:.0f}%)
 
-            target_matches.append({
-                "home_team": home_team,
-                "away_team": away_team,
-                "league": match_league,
-                "exp_goals_home": h_stats.get('goals', 1.4),
-                "exp_goals_away": a_stats.get('goals', 1.1),
-                "exp_corners_home": h_stats.get('corners', 5.0),
-                "exp_corners_away": a_stats.get('corners', 4.2),
-                "exp_cards_home": h_stats.get('cards', 2.0),
-                "exp_cards_away": a_stats.get('cards', 2.3)
-            })
+Goles partido: Over {sim['goles_linea']} ({sim['goles_over']:.0f}%) | Under {sim['goles_linea']} ({sim['goles_under']:.0f}%)
+Goles 1er tiempo: Over {sim['goles_1t_linea']} ({sim['goles_1t_over']:.0f}%) | Under {sim['goles_1t_linea']} ({sim['goles_1t_under']:.0f}%)
 
-    all_results = []
-    best_pick = {"market": None, "prob": 0.0, "match": None}
+Corners entre ambos: over {sim['corners_totales_over_linea']}({sim['corners_totales_over']:.0f}%) under {sim['corners_totales_under_linea']}({sim['corners_totales_under']:.0f}%)
+Over corners {match['home']}: {sim['corners_home_over_linea']} corners ({sim['corners_home_over']:.0f}%)
+Under corners {match['home']}: {sim['corners_home_under_linea']} ({sim['corners_home_under']:.0f}%)
+Over corners {match['away']}: {sim['corners_away_over_linea']} corners ({sim['corners_away_over']:.0f}%)
+Under corners {match['away']}: {sim['corners_away_under_linea']} ({sim['corners_away_under']:.0f}%)
 
-    for m in target_matches:
-        analysis = run_monte_carlo_analysis(m)
-        all_results.append(analysis)
+Tarjetas entre ambos: over {sim['cards_totales_over_linea']}({sim['cards_totales_over']:.0f}%) under {sim['cards_totales_under_linea']}({sim['cards_totales_under']:.0f}%)
+Over tarjetas {match['home']}: {sim['cards_home_over_linea']} ({sim['cards_home_over']:.0f}%)
+Under tarjetas {match['home']}: {sim['cards_home_under_linea']} ({sim['cards_home_under']:.0f}%)
+Over tarjetas {match['away']}: {sim['cards_away_over_linea']} ({sim['cards_away_over']:.0f}%)
+Under tarjetas {match['away']}: {sim['cards_away_under_linea']} ({sim['cards_away_under']:.0f}%)
 
-        for m_name, prob in analysis["markets"].items():
-            if prob > best_pick["prob"] and prob >= 85.0:
-                best_pick = {
-                    "match": analysis["match"],
-                    "market": m_name,
-                    "prob": prob
-                }
+Fueras de lugar entre ambos: over {sim['offsides_totales_linea']} ({sim['offsides_totales_over']:.0f}%) | under {sim['offsides_totales_under_linea']} ({sim['offsides_totales_under']:.0f}%)
+Fueras de lugar {match['home']}: over {sim['offsides_home_linea']} ({sim['offsides_home_over']:.0f}%) | under {sim['offsides_home_under_linea']} ({sim['offsides_home_under']:.0f}%)
+Fueras de lugar {match['away']}: over {sim['offsides_away_linea']} ({sim['offsides_away_over']:.0f}%) | under {sim['offsides_away_under_linea']} ({sim['offsides_away_under']:.0f}%)
 
-    return {
-        "date": tomorrow,
-        "matches_analyzed": len(all_results),
-        "results": all_results,
-        "direct_bet_pick_of_the_day": best_pick if best_pick["market"] else "Sin picks directos mayores a 85% hoy para las ligas seleccionadas."
-    }
+Atajadas porteros entre ambos: over {sim['saves_totales_linea']} ({sim['saves_totales_over']:.0f}%) | under {sim['saves_totales_under_linea']} ({sim['saves_totales_under']:.0f}%)
+Atajadas portero {match['home']}: over {sim['saves_home_linea']} ({sim['saves_home_over']:.0f}%)
+Atajadas portero {match['away']}: over {sim['saves_away_linea']} ({sim['saves_away_over']:.0f}%)
+
+Remates a portería entre ambos: over {sim['sot_totales_linea']} ({sim['sot_totales_over']:.0f}%) | under {sim['sot_totales_under_linea']} ({sim['sot_totales_under']:.0f}%)
+Remates a portería {match['home']}: over {sim['sot_home_linea']} ({sim['sot_home_over']:.0f}%) | under {sim['sot_home_under_linea']} ({sim['sot_home_under']:.0f}%)
+Remates a portería {match['away']}: over {sim['sot_away_linea']} ({sim['sot_away_over']:.0f}%) | under {sim['sot_away_under_linea']} ({sim['sot_away_under']:.0f}%)
+
+Remates totales entre ambos: over {sim['shots_totales_linea']} ({sim['shots_totales_over']:.0f}%) | under {sim['shots_totales_under_linea']} ({sim['shots_totales_under']:.0f}%)
+Remates totales {match['home']}: over {sim['shots_home_linea']} ({sim['shots_home_over']:.0f}%) | under {sim['shots_home_under_linea']} ({sim['shots_home_under']:.0f}%)
+Remates totales {match['away']}: over {sim['shots_away_linea']} ({sim['shots_away_over']:.0f}%) | under {sim['shots_away_under_linea']} ({sim['shots_away_under']:.0f}%)
+
+Faltas entre ambos: over {sim['fouls_totales_linea']} ({sim['fouls_totales_over']:.0f}%) | under {sim['fouls_totales_under_linea']} ({sim['fouls_totales_under']:.0f}%)
+Faltas {match['home']}: over {sim['fouls_home_linea']} ({sim['fouls_home_over']:.0f}%) | under {sim['fouls_home_under_linea']} ({sim['fouls_home_under']:.0f}%)
+Faltas {match['away']}: over {sim['fouls_away_linea']} ({sim['fouls_away_over']:.0f}%) | under {sim['fouls_away_under_linea']} ({sim['fouls_away_under']:.0f}%)
+
+Penalti en el encuentro: Sí ({sim['penalty_yes']:.0f}%) | No ({sim['penalty_no']:.0f}%)
+Marca en ambos tiempos: {match['home']} Sí ({sim['score_both_halves_home']:.0f}%) | {match['away']} Sí ({sim['score_both_halves_away']:.0f}%)
+
+Moneyline: {match['home']} ({sim['ml_home']:.0f}%) | Empate ({sim['ml_draw']:.0f}%) | {match['away']} ({sim['ml_away']:.0f}%)
+Doble oportunidad: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12']:.0f}%)
+
+Primer gol: {match['home']} ({sim['first_goal_home']:.0f}%) | {match['away']} ({sim['first_goal_away']:.0f}%) | Ninguno ({sim['first_goal_none']:.0f}%)
+Ganador de mitad: {match['home']} gana alguna mitad ({sim['win_half_home']:.0f}%) | {match['away']} gana alguna mitad ({sim['win_half_away']:.0f}%)
+
+Apuesta derecha con 85% de probabilidad: {apuesta_derecha_txt}
+"""
+    return reporte_texto
+
+
+def analyze_all_matches(target_matches):
+    reportes = []
+    for match in target_matches:
+        simulacion = run_monte_carlo_analysis(match)
+        texto_partido = generar_reporte_partido(match, simulacion)
+        reportes.append(texto_partido)
+
+    salida_final = "\n" + "=" * 40 + "\n".join(reportes)
+    print(salida_final)
+    return salida_final
+
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=analyze_all_matches, trigger="cron", hour=21, minute=0)
 scheduler.start()
-
-@app.route('/', methods=['GET'])
-def health_check():
-    return "Bot SofaScore + Montecarlo activo y corriendo 24/7", 200
-
-@app.route('/run-now', methods=['GET', 'POST'])
-def run_now():
-    results = analyze_all_matches()
-    return jsonify(results), 200
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
