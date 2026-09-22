@@ -2,7 +2,7 @@ import os
 import time
 import numpy as np
 import requests
-import threading
+import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
@@ -544,13 +544,17 @@ def analyze_all_matches(target_matches=None):
     return salida_final
 
 
-@app.route("/")
+@app.route("/", methods=["GET", "HEAD"])
 def index():
-    return "Bot Monte Carlo activo y programado a las 9:00 PM"
-def procesar_partido_background(url, chat_id):
+    return "Bot Monte Carlo activo y programado a las 9:00 PM", 200
+
+
+def procesar_partido_background(url_raw, chat_id):
     try:
-        partido = obtener_partido_por_url(url)
+        # Limpia anclas como #id:17148324
+        url = url_raw.split('#')[0].strip()
         
+        partido = obtener_partido_por_url(url)
         if not partido:
             send_telegram_message("❌ No se pudieron obtener los datos de ese enlace de SofaScore.", chat_id=chat_id)
             return
@@ -565,6 +569,8 @@ def procesar_partido_background(url, chat_id):
         html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_card)
         
         nombre_foto = f"reporte_custom_{chat_id}.png"
+        
+        # Renderiza la infografía con Playwright dentro del proceso independiente
         renderizar_liga_a_imagen_4k(html_final, nombre_foto)
         
         caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
@@ -574,8 +580,8 @@ def procesar_partido_background(url, chat_id):
             os.remove(nombre_foto)
             
     except Exception as e:
-        print(f"Error procesando partido en background: {e}")
-        send_telegram_message(f"⚠️ Ocurrió un error al procesar el partido: {e}", chat_id=chat_id)
+        print(f"Error detallado en background: {e}")
+        send_telegram_message(f"⚠️ Error procesando el partido: {str(e)}", chat_id=chat_id)
 
 
 @app.route("/webhook", methods=["POST"])
@@ -584,6 +590,28 @@ def webhook():
         data = request.get_json(force=True, silent=True)
         if not data or "message" not in data:
             return "OK", 200
+
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = (message.get("text") or message.get("caption") or "").strip()
+
+        if "sofascore.com" in text:
+            send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
+            
+            words = text.split()
+            url = next((w.strip() for w in words if "sofascore.com" in w), None)
+
+            if url:
+                # multiprocessing.Process aisla Playwright para que no truene con hilos
+                proceso = multiprocessing.Process(target=procesar_partido_background, args=(url, chat_id))
+                proceso.start()
+            else:
+                send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
+
+    except Exception as e:
+        print(f"Error en Webhook: {e}")
+
+    return "OK", 200
 
         message = data["message"]
         chat_id = message["chat"]["id"]
