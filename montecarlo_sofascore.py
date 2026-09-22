@@ -1,12 +1,17 @@
-from apscheduler.schedulers.blocking import BlockingScheduler
+import os
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask
 import numpy as np
+
+app = Flask(_name_)
+
+
+@app.route("/")
+def health_check():
+    return "Bot de análisis Monte Carlo activo.", 200
 
 
 def run_monte_carlo_analysis(match, n_simulations=10000):
-    """Ejecuta N simulaciones de Monte Carlo para un partido y calcula
-
-    las probabilidades de los 15 mercados requeridos.
-    """
     exp_goals_home = match.get("exp_g_home", 1.6)
     exp_goals_away = match.get("exp_g_away", 1.2)
     exp_corners_home = match.get("exp_c_home", 5.2)
@@ -447,10 +452,12 @@ def analyze_all_matches(target_matches=None):
     return salida_final
 
 
-if __name__ == "__main__":
-    scheduler = BlockingScheduler()
+if __name__== "__main__":
+    scheduler = BackgroundScheduler()
     scheduler.add_job(
         func=analyze_all_matches, trigger="cron", hour=21, minute=0
     )
-    print("Iniciando programador de tareas en Render...")
     scheduler.start()
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
