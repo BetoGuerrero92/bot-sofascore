@@ -448,7 +448,7 @@ def analyze_all_matches(target_matches=None):
     return salida_final
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     scheduler = BlockingScheduler()
     scheduler.add_job(
         func=analyze_all_matches, trigger="cron", hour=21, minute=0
