@@ -12,7 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # ==============================================================================
 # SERVIDOR WEB PARA MANTENER RENDER ACTIVO (KEEP-ALIVE)
 # ==============================================================================
-app = Flask(_name_)
+app = Flask(__name__)
 
 @app.route('/')
 def home():
