@@ -372,6 +372,18 @@ def webhook():
 
     return "OK", 200
 
+@app.route("/")
+def health_check():
+    return "Bot Monte Carlo activo y en espera.", 200
+
+@app.route("/run")
+def manual_trigger():
+    try:
+        job()
+        return "Análisis ejecutado manualmente y enviado a Telegram.", 200
+    except Exception as e:
+        return f"Error al ejecutar: {str(e)}", 500
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
