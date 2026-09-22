@@ -1,3 +1,9 @@
+from sofascore_scraper import (
+    obtener_partidos_manana,
+    agrupar_por_liga,
+    generar_card_partido_html,
+    obtener_partido_por_url
+)
 import os
 import time
 import numpy as np
