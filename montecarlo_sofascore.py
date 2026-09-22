@@ -544,7 +544,7 @@ def analyze_all_matches(target_matches=None):
 def index():
     return "Bot Monte Carlo activo y programado a las 9:00 PM"
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     scheduler = BackgroundScheduler(timezone="America/Mexico_City")
     scheduler.add_job(job, 'cron', hour=21, minute=0)
     scheduler.start()
