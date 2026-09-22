@@ -5,3 +5,5 @@ apscheduler
 flask
 playwright
 schedule
+cloudscraper
+gunicorn
