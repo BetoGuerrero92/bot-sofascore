@@ -7,7 +7,7 @@ from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
 
-app = Flask(_name_)
+app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
 
@@ -468,7 +468,7 @@ def webhook():
 
     return "OK", 200
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     scheduler = BackgroundScheduler(timezone="America/Mexico_City")
     scheduler.add_job(job, 'cron', hour=21, minute=0)
     scheduler.start()
