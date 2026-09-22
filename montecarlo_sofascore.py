@@ -10,7 +10,7 @@ from curl_cffi import requests as cffi_requests
 # Configuración de Logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 # Configuración de Headers para SofaScore
 HEADERS = {
