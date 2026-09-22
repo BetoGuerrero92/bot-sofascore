@@ -11,7 +11,6 @@ import requests
 import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
-from playwright.sync_api import sync_playwright
 
 app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
@@ -29,76 +28,6 @@ def send_telegram_message(text, chat_id=None):
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Error enviando a Telegram: {e}")
-
-def send_telegram_photo(image_path, caption="", chat_id=None):
-    target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-    try:
-        with open(image_path, 'rb') as photo:
-            payload = {
-                "chat_id": target_chat,
-                "caption": caption,
-                "parse_mode": "Markdown"
-            }
-            files = {"photo": photo}
-            requests.post(url, data=payload, files=files, timeout=30)
-    except Exception as e:
-        print(f"Error enviando foto a Telegram: {e}")
-
-def renderizar_liga_a_imagen_4k(html_codigo, nombre_archivo="reporte_liga.png"):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(
-            viewport={'width': 1440, 'height': 900},
-            device_scale_factor=2.5
-        )
-        page.set_content(html_codigo)
-        page.locator("body").screenshot(path=nombre_archivo, full_page=True)
-        browser.close()
-    return nombre_archivo
-
-def job():
-    print("⏰ Ejecutando análisis programado de las 9:00 PM...")
-    
-    # 1. Obtener partidos de mañana
-    partidos = obtener_partidos_manana()  
-
-    # CASO SIN PARTIDOS
-    if not partidos:
-        send_telegram_message(
-            "⚽ REPORTE DIARIO DE ESTADO\n\n"
-            "El sistema analizó las ligas monitoreadas y no se encontraron partidos para el día de mañana.\n"
-            "✅ El bot sigue operando correctamente."
-        )
-        return
-
-    # CASO CON PARTIDOS (Generar infografía 4K)
-    try:
-        with open("plantilla_partido.html", "r", encoding="utf-8") as f:
-            html_base = f.read()
-    except Exception as e:
-        print(f"Error cargando plantilla HTML: {e}")
-        return
-
-    partidos_por_liga = agrupar_por_liga(partidos)
-
-    for liga, lista_partidos in partidos_por_liga.items():
-        html_contenido = ""
-        for partido in lista_partidos:
-            html_contenido += generar_card_partido_html(partido)
-            
-        html_final = html_base.replace("{{ NOMBRE_LIGA }}", liga.upper())
-        html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_contenido)
-        
-        nombre_foto = f"reporte_{liga.replace(' ', '_')}.png"
-        renderizar_liga_a_imagen_4k(html_final, nombre_foto)
-        
-        caption = f"🏆 {liga.upper()} — ANÁLISIS DE JORNADA\n📊 {len(lista_partidos)} partidos procesados por Monte Carlo."
-        send_telegram_photo(nombre_foto, caption=caption)
-        
-        time.sleep(3)
-        if os.path.exists(nombre_foto):
-            os.remove(nombre_foto)
 
 def run_monte_carlo_analysis(match, n_simulations=10000):
     exp_goals_home = match.get("exp_g_home", 1.6)
@@ -250,6 +179,9 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     return sim
 
 def generar_reporte_partido(match, sim):
+    home = match.get('home', match.get('home_team', 'Local'))
+    away = match.get('away', match.get('away_team', 'Visitante'))
+
     mercados_evaluados = [
         ("Ambos anotan", sim["btts_yes"]),
         ("Ambos no anotan", sim["btts_no"]),
@@ -259,158 +191,130 @@ def generar_reporte_partido(match, sim):
         (f"Under {sim['goles_1t_linea']} goles 1er tiempo", sim["goles_1t_under"]),
         (f"Over {sim['corners_totales_over_linea']} corners entre ambos", sim["corners_totales_over"]),
         (f"Under {sim['corners_totales_under_linea']} corners entre ambos", sim["corners_totales_under"]),
-        (f"Over {sim['corners_home_over_linea']} corners {match['home']}", sim["corners_home_over"]),
-        (f"Under {sim['corners_home_under_linea']} corners {match['home']}", sim["corners_home_under"]),
-        (f"Over {sim['corners_away_over_linea']} corners {match['away']}", sim["corners_away_over"]),
-        (f"Under {sim['corners_away_under_linea']} corners {match['away']}", sim["corners_away_under"]),
+        (f"Over {sim['corners_home_over_linea']} corners {home}", sim["corners_home_over"]),
+        (f"Under {sim['corners_home_under_linea']} corners {home}", sim["corners_home_under"]),
+        (f"Over {sim['corners_away_over_linea']} corners {away}", sim["corners_away_over"]),
+        (f"Under {sim['corners_away_under_linea']} corners {away}", sim["corners_away_under"]),
         (f"Over {sim['cards_totales_over_linea']} tarjetas entre ambos", sim["cards_totales_over"]),
         (f"Under {sim['cards_totales_under_linea']} tarjetas entre ambos", sim["cards_totales_under"]),
-        (f"Over {sim['cards_home_over_linea']} tarjetas {match['home']}", sim["cards_home_over"]),
-        (f"Under {sim['cards_home_under_linea']} tarjetas {match['home']}", sim["cards_home_under"]),
-        (f"Over {sim['cards_away_over_linea']} tarjetas {match['away']}", sim["cards_away_over"]),
-        (f"Under {sim['cards_away_under_linea']} tarjetas {match['away']}", sim["cards_away_under"]),
+        (f"Over {sim['cards_home_over_linea']} tarjetas {home}", sim["cards_home_over"]),
+        (f"Under {sim['cards_home_under_linea']} tarjetas {home}", sim["cards_home_under"]),
+        (f"Over {sim['cards_away_over_linea']} tarjetas {away}", sim["cards_away_over"]),
+        (f"Under {sim['cards_away_under_linea']} tarjetas {away}", sim["cards_away_under"]),
         (f"Over {sim['offsides_totales_linea']} fueras de lugar entre ambos", sim["offsides_totales_over"]),
         (f"Under {sim['offsides_totales_under_linea']} fueras de lugar entre ambos", sim["offsides_totales_under"]),
-        (f"Over {sim['offsides_home_linea']} fueras de lugar {match['home']}", sim["offsides_home_over"]),
-        (f"Under {sim['offsides_home_under_linea']} fueras de lugar {match['home']}", sim["offsides_home_under"]),
-        (f"Over {sim['offsides_away_linea']} fueras de lugar {match['away']}", sim["offsides_away_over"]),
-        (f"Under {sim['offsides_away_under_linea']} fueras de lugar {match['away']}", sim["offsides_away_under"]),
+        (f"Over {sim['offsides_home_linea']} fueras de lugar {home}", sim["offsides_home_over"]),
+        (f"Under {sim['offsides_home_under_linea']} fueras de lugar {home}", sim["offsides_home_under"]),
+        (f"Over {sim['offsides_away_linea']} fueras de lugar {away}", sim["offsides_away_over"]),
+        (f"Under {sim['offsides_away_under_linea']} fueras de lugar {away}", sim["offsides_away_under"]),
         (f"Over {sim['saves_totales_linea']} atajadas entre ambos porteros", sim["saves_totales_over"]),
         (f"Under {sim['saves_totales_under_linea']} atajadas entre ambos porteros", sim["saves_totales_under"]),
-        (f"Over {sim['saves_home_linea']} atajadas portero {match['home']}", sim["saves_home_over"]),
-        (f"Over {sim['saves_away_linea']} atajadas portero {match['away']}", sim["saves_away_over"]),
+        (f"Over {sim['saves_home_linea']} atajadas portero {home}", sim["saves_home_over"]),
+        (f"Over {sim['saves_away_linea']} atajadas portero {away}", sim["saves_away_over"]),
         (f"Over {sim['sot_totales_linea']} remates a portería entre ambos", sim["sot_totales_over"]),
         (f"Under {sim['sot_totales_under_linea']} remates a portería entre ambos", sim["sot_totales_under"]),
-        (f"Over {sim['sot_home_linea']} remates a portería {match['home']}", sim["sot_home_over"]),
-        (f"Under {sim['sot_home_under_linea']} remates a portería {match['home']}", sim["sot_home_under"]),
-        (f"Over {sim['sot_away_linea']} remates a portería {match['away']}", sim["sot_away_over"]),
-        (f"Under {sim['sot_away_under_linea']} remates a portería {match['away']}", sim["sot_away_under"]),
+        (f"Over {sim['sot_home_linea']} remates a portería {home}", sim["sot_home_over"]),
+        (f"Under {sim['sot_home_under_linea']} remates a portería {home}", sim["sot_home_under"]),
+        (f"Over {sim['sot_away_linea']} remates a portería {away}", sim["sot_away_over"]),
+        (f"Under {sim['sot_away_under_linea']} remates a portería {away}", sim["sot_away_under"]),
         (f"Over {sim['shots_totales_linea']} remates totales entre ambos", sim["shots_totales_over"]),
         (f"Under {sim['shots_totales_under_linea']} remates totales entre ambos", sim["shots_totales_under"]),
-        (f"Over {sim['shots_home_linea']} remates totales {match['home']}", sim["shots_home_over"]),
-        (f"Under {sim['shots_home_under_linea']} remates totales {match['home']}", sim["shots_home_under"]),
-        (f"Over {sim['shots_away_linea']} remates totales {match['away']}", sim["shots_away_over"]),
-        (f"Under {sim['shots_away_under_linea']} remates totales {match['away']}", sim["shots_away_under"]),
+        (f"Over {sim['shots_home_linea']} remates totales {home}", sim["shots_home_over"]),
+        (f"Under {sim['shots_home_under_linea']} remates totales {home}", sim["shots_home_under"]),
+        (f"Over {sim['shots_away_linea']} remates totales {away}", sim["shots_away_over"]),
+        (f"Under {sim['shots_away_under_linea']} remates totales {away}", sim["shots_away_under"]),
         (f"Over {sim['fouls_totales_linea']} faltas entre ambos", sim["fouls_totales_over"]),
         (f"Under {sim['fouls_totales_under_linea']} faltas entre ambos", sim["fouls_totales_under"]),
-        (f"Over {sim['fouls_home_linea']} faltas {match['home']}", sim["fouls_home_over"]),
-        (f"Under {sim['fouls_home_under_linea']} faltas {match['home']}", sim["fouls_home_under"]),
-        (f"Over {sim['fouls_away_linea']} faltas {match['away']}", sim["fouls_away_over"]),
-        (f"Under {sim['fouls_away_under_linea']} faltas {match['away']}", sim["fouls_away_under"]),
+        (f"Over {sim['fouls_home_linea']} faltas {home}", sim["fouls_home_over"]),
+        (f"Under {sim['fouls_home_under_linea']} faltas {home}", sim["fouls_home_under"]),
+        (f"Over {sim['fouls_away_linea']} faltas {away}", sim["fouls_away_over"]),
+        (f"Under {sim['fouls_away_under_linea']} faltas {away}", sim["fouls_away_under"]),
         ("Penalti en el encuentro - Sí", sim["penalty_yes"]),
         ("Penalti en el encuentro - No", sim["penalty_no"]),
-        (f"{match['home']} marca en ambos tiempos", sim["score_both_halves_home"]),
-        (f"{match['away']} marca en ambos tiempos", sim["score_both_halves_away"]),
-        (f"Gana {match['home']}", sim["ml_home"]),
+        (f"{home} marca en ambos tiempos", sim["score_both_halves_home"]),
+        (f"{away} marca en ambos tiempos", sim["score_both_halves_away"]),
+        (f"Gana {home}", sim["ml_home"]),
         ("Empate", sim["ml_draw"]),
-        (f"Gana {match['away']}", sim["ml_away"]),
-        (f"Doble Oportunidad 1X ({match['home']} o Empate)", sim["dc_1x"]),
-        (f"Doble Oportunidad X2 ({match['away']} o Empate)", sim["dc_x2"]),
+        (f"Gana {away}", sim["ml_away"]),
+        (f"Doble Oportunidad 1X ({home} o Empate)", sim["dc_1x"]),
+        (f"Doble Oportunidad X2 ({away} o Empate)", sim["dc_x2"]),
         ("Doble Oportunidad 12 (Sin Empate)", sim["dc_12"]),
-        (f"Primer gol {match['home']}", sim["first_goal_home"]),
-        (f"Primer gol {match['away']}", sim["first_goal_away"]),
-        (f"{match['home']} gana alguna mitad", sim["win_half_home"]),
-        (f"{match['away']} gana alguna mitad", sim["win_half_away"]),
+        (f"Primer gol {home}", sim["first_goal_home"]),
+        (f"Primer gol {away}", sim["first_goal_away"]),
+        (f"{home} gana alguna mitad", sim["win_half_home"]),
+        (f"{away} gana alguna mitad", sim["win_half_away"]),
     ]
 
-    candidatos_85 = [
-        (nombre, prob) for nombre, prob in mercados_evaluados if prob >= 85.0
-    ]
+    candidatos_85 = [(nombre, prob) for nombre, prob in mercados_evaluados if prob >= 85.0]
 
     if candidatos_85:
         candidatos_85.sort(key=lambda x: x[1], reverse=True)
         top_pick, top_prob = candidatos_85[0]
-        apuesta_derecha_txt = f"{top_pick} ({top_prob:.0f}%)"
+        apuesta_derecha_txt = f"🎯 {top_pick} ({top_prob:.0f}%)"
     else:
-        apuesta_derecha_txt = "Sin selecciones directas mayores o iguales al 85% para este partido"
+        apuesta_derecha_txt = "Sin selecciones directas ≥85%"
 
-    reporte_texto = f"""
-{match['home']} vs {match['away']}
+    reporte_texto = f"""⚽ {home} vs {away}
 
-Ambos anotan ({sim['btts_yes']:.0f}%) | Ambos no anotan ({sim['btts_no']:.0f}%)
+Ambos anotan: Sí ({sim['btts_yes']:.0f}%) | No ({sim['btts_no']:.0f}%)
+Goles: Over {sim['goles_linea']} ({sim['goles_over']:.0f}%) | Under {sim['goles_linea']} ({sim['goles_under']:.0f}%)
+Goles 1T: Over {sim['goles_1t_linea']} ({sim['goles_1t_over']:.0f}%) | Under {sim['goles_1t_linea']} ({sim['goles_1t_under']:.0f}%)
 
-Goles partido: Over {sim['goles_linea']} ({sim['goles_over']:.0f}%) | Under {sim['goles_linea']} ({sim['goles_under']:.0f}%)
-Goles 1er tiempo: Over {sim['goles_1t_linea']} ({sim['goles_1t_over']:.0f}%) | Under {sim['goles_1t_linea']} ({sim['goles_1t_under']:.0f}%)
+🚩 Corners Totales: Over {sim['corners_totales_over_linea']} ({sim['corners_totales_over']:.0f}%) | Under {sim['corners_totales_under_linea']} ({sim['corners_totales_under']:.0f}%)
+* {home}: Over {sim['corners_home_over_linea']} ({sim['corners_home_over']:.0f}%) | Under {sim['corners_home_under_linea']} ({sim['corners_home_under']:.0f}%)
+* {away}: Over {sim['corners_away_over_linea']} ({sim['corners_away_over']:.0f}%) | Under {sim['corners_away_under_linea']} ({sim['corners_away_under']:.0f}%)
 
-Corners entre ambos: over {sim['corners_totales_over_linea']}({sim['corners_totales_over']:.0f}%) under {sim['corners_totales_under_linea']}({sim['corners_totales_under']:.0f}%)
-Over corners {match['home']}: {sim['corners_home_over_linea']} corners ({sim['corners_home_over']:.0f}%)
-Under corners {match['home']}: {sim['corners_home_under_linea']} ({sim['corners_home_under']:.0f}%)
-Over corners {match['away']}: {sim['corners_away_over_linea']} corners ({sim['corners_away_over']:.0f}%)
-Under corners {match['away']}: {sim['corners_away_under_linea']} ({sim['corners_away_under']:.0f}%)
+🟨 Tarjetas Totales: Over {sim['cards_totales_over_linea']} ({sim['cards_totales_over']:.0f}%) | Under {sim['cards_totales_under_linea']} ({sim['cards_totales_under']:.0f}%)
+* {home}: Over {sim['cards_home_over_linea']} ({sim['cards_home_over']:.0f}%) | Under {sim['cards_home_under_linea']} ({sim['cards_home_under']:.0f}%)
+* {away}: Over {sim['cards_away_over_linea']} ({sim['cards_away_over']:.0f}%) | Under {sim['cards_away_under_linea']} ({sim['cards_away_under']:.0f}%)
 
-Tarjetas entre ambos: over {sim['cards_totales_over_linea']}({sim['cards_totales_over']:.0f}%) under {sim['cards_totales_under_linea']}({sim['cards_totales_under']:.0f}%)
-Over tarjetas {match['home']}: {sim['cards_home_over_linea']} ({sim['cards_home_over']:.0f}%)
-Under tarjetas {match['home']}: {sim['cards_home_under_linea']} ({sim['cards_home_under']:.0f}%)
-Over tarjetas {match['away']}: {sim['cards_away_over_linea']} ({sim['cards_away_over']:.0f}%)
-Under tarjetas {match['away']}: {sim['cards_away_under_linea']} ({sim['cards_away_under']:.0f}%)
+🚩 Fueras de Lugar: Over {sim['offsides_totales_linea']} ({sim['offsides_totales_over']:.0f}%) | Under {sim['offsides_totales_under_linea']} ({sim['offsides_totales_under']:.0f}%)
+🧤 Atajadas: Over {sim['saves_totales_linea']} ({sim['saves_totales_over']:.0f}%) | Under {sim['saves_totales_under_linea']} ({sim['saves_totales_under']:.0f}%)
+🎯 Remates a Porte: Over {sim['sot_totales_linea']} ({sim['sot_totales_over']:.0f}%) | Under {sim['sot_totales_under_linea']} ({sim['sot_totales_under']:.0f}%)
+👟 Remates Totales: Over {sim['shots_totales_linea']} ({sim['shots_totales_over']:.0f}%) | Under {sim['shots_totales_under_linea']} ({sim['shots_totales_under']:.0f}%)
+🛑 Faltas: Over {sim['fouls_totales_linea']} ({sim['fouls_totales_over']:.0f}%) | Under {sim['fouls_totales_under_linea']} ({sim['fouls_totales_under']:.0f}%)
 
-Fueras de lugar entre ambos: over {sim['offsides_totales_linea']} ({sim['offsides_totales_over']:.0f}%) | under {sim['offsides_totales_under_linea']} ({sim['offsides_totales_under']:.0f}%)
-Fueras de lugar {match['home']}: over {sim['offsides_home_linea']} ({sim['offsides_home_over']:.0f}%) | under {sim['offsides_home_under_linea']} ({sim['offsides_home_under']:.0f}%)
-Fueras de lugar {match['away']}: over {sim['offsides_away_linea']} ({sim['offsides_away_over']:.0f}%) | under {sim['offsides_away_under_linea']} ({sim['offsides_away_under']:.0f}%)
+ penalty: Sí ({sim['penalty_yes']:.0f}%) | No ({sim['penalty_no']:.0f}%)
+Marca en 2 tiempos: {home} ({sim['score_both_halves_home']:.0f}%) | {away} ({sim['score_both_halves_away']:.0f}%)
+Moneyline: {home} ({sim['ml_home']:.0f}%) | X ({sim['ml_draw']:.0f}%) | {away} ({sim['ml_away']:.0f}%)
+Doble Op: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12']:.0f}%)
 
-Atajadas porteros entre ambos: over {sim['saves_totales_linea']} ({sim['saves_totales_over']:.0f}%) | under {sim['saves_totales_under_linea']} ({sim['saves_totales_under']:.0f}%)
-Atajadas portero {match['home']}: over {sim['saves_home_linea']} ({sim['saves_home_over']:.0f}%)
-Atajadas portero {match['away']}: over {sim['saves_away_linea']} ({sim['saves_away_over']:.0f}%)
-
-Remates a portería entre ambos: over {sim['sot_totales_linea']} ({sim['sot_totales_over']:.0f}%) | under {sim['sot_totales_under_linea']} ({sim['sot_totales_under']:.0f}%)
-Remates a portería {match['home']}: over {sim['sot_home_linea']} ({sim['sot_home_over']:.0f}%) | under {sim['sot_home_under_linea']} ({sim['sot_home_under']:.0f}%)
-Remates a portería {match['away']}: over {sim['sot_away_linea']} ({sim['sot_away_over']:.0f}%) | under {sim['sot_away_under_linea']} ({sim['sot_away_under']:.0f}%)
-
-Remates totales entre ambos: over {sim['shots_totales_linea']} ({sim['shots_totales_over']:.0f}%) | under {sim['shots_totales_under_linea']} ({sim['shots_totales_under']:.0f}%)
-Remates totales {match['home']}: over {sim['shots_home_linea']} ({sim['shots_home_over']:.0f}%) | under {sim['shots_home_under_linea']} ({sim['shots_home_under']:.0f}%)
-Remates totales {match['away']}: over {sim['shots_away_linea']} ({sim['shots_away_over']:.0f}%) | under {sim['shots_away_under_linea']} ({sim['shots_away_under']:.0f}%)
-
-Faltas entre ambos: over {sim['fouls_totales_linea']} ({sim['fouls_totales_over']:.0f}%) | under {sim['fouls_totales_under_linea']} ({sim['fouls_totales_under']:.0f}%)
-Faltas {match['home']}: over {sim['fouls_home_linea']} ({sim['fouls_home_over']:.0f}%) | under {sim['fouls_home_under_linea']} ({sim['fouls_home_under']:.0f}%)
-Faltas {match['away']}: over {sim['fouls_away_linea']} ({sim['fouls_away_over']:.0f}%) | under {sim['fouls_away_under_linea']} ({sim['fouls_away_under']:.0f}%)
-
-Penalti en el encuentro: Sí ({sim['penalty_yes']:.0f}%) | No ({sim['penalty_no']:.0f}%)
-Marca en ambos tiempos: {match['home']} Sí ({sim['score_both_halves_home']:.0f}%) | {match['away']} Sí ({sim['score_both_halves_away']:.0f}%)
-
-Moneyline: {match['home']} ({sim['ml_home']:.0f}%) | Empate ({sim['ml_draw']:.0f}%) | {match['away']} ({sim['ml_away']:.0f}%)
-Doble oportunidad: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12']:.0f}%)
-
-Primer gol: {match['home']} ({sim['first_goal_home']:.0f}%) | {match['away']} ({sim['first_goal_away']:.0f}%) | Ninguno ({sim['first_goal_none']:.0f}%)
-Ganador de mitad: {match['home']} gana alguna mitad ({sim['win_half_home']:.0f}%) | {match['away']} gana alguna mitad ({sim['win_half_away']:.0f}%)
-
-Apuesta derecha con 85% de probabilidad: {apuesta_derecha_txt}
-"""
+🔥 PICK RECOMENDADO (≥85%): {apuesta_derecha_txt}"""
     return reporte_texto
 
-def analyze_all_matches(target_matches=None):
-    if target_matches is None:
-        target_matches = [
-            {
-                "home": "Equipo Local",
-                "away": "Equipo Visitante",
-                "exp_g_home": 1.6,
-                "exp_g_away": 1.2,
-                "exp_c_home": 5.2,
-                "exp_c_away": 4.1,
-                "exp_card_home": 2.1,
-                "exp_card_away": 2.4,
-                "exp_off_home": 2.0,
-                "exp_off_away": 1.8,
-                "exp_sav_home": 3.2,
-                "exp_sav_away": 3.8,
-                "exp_sot_home": 5.1,
-                "exp_sot_away": 4.3,
-                "exp_sh_home": 13.5,
-                "exp_sh_away": 11.2,
-                "exp_foul_home": 11.8,
-                "exp_foul_away": 12.5,
-            }
-        ]
+def job():
+    print("⏰ Ejecutando análisis programado de las 9:00 PM...")
+    partidos = obtener_partidos_manana()  
 
-    reportes = []
-    for match in target_matches:
-        simulacion = run_monte_carlo_analysis(match)
-        texto_partido = generar_reporte_partido(match, simulacion)
-        reportes.append(texto_partido)
+    if not partidos:
+        send_telegram_message(
+            "⚽ REPORTE DIARIO DE ESTADO\n\n"
+            "El sistema analizó las ligas monitoreadas y no se encontraron partidos para el día de mañana.\n"
+            "✅ El bot sigue operando correctamente."
+        )
+        return
 
-    salida_final = "\n" + "=" * 40 + "\n".join(reportes)
-    print(salida_final)
-    return salida_final
+    partidos_por_liga = agrupar_por_liga(partidos)
+
+    for liga, lista_partidos in partidos_por_liga.items():
+        send_telegram_message(f"🏆 LIGA: {liga.upper()}\n📊 Procesando {len(lista_partidos)} partidos...")
+        time.sleep(3)
+
+        # Enviar en bloques de máximo 2 partidos por mensaje
+        for i in range(0, len(lista_partidos), 2):
+            bloque = lista_partidos[i:i+2]
+            texto_mensaje = ""
+
+            for partido in bloque:
+                sim = run_monte_carlo_analysis(partido)
+                texto_mensaje += generar_reporte_partido(partido, sim) + "\n\n" + "═══════════════════" + "\n\n"
+
+            send_telegram_message(texto_mensaje)
+
+            # Si quedan más partidos por enviar, esperar 90 segundos (1.5 min)
+            if i + 2 < len(lista_partidos):
+                print("⏳ Esperando 90 segundos antes del siguiente envío...")
+                time.sleep(90)
 
 @app.route("/", methods=["GET", "HEAD"])
 def index():
@@ -423,28 +327,14 @@ def procesar_partido_background(url_raw, chat_id):
         if not partido:
             send_telegram_message("❌ No se pudieron obtener los datos de ese enlace de SofaScore.", chat_id=chat_id)
             return
-            
-        with open("plantilla_partido.html", "r", encoding="utf-8") as f:
-            html_base = f.read()
-            
-        html_card = generar_card_partido_html(partido)
-        nombre_liga = partido.get("league_name", "ANÁLISIS INDIVIDUAL")
-        
-        html_final = html_base.replace("{{ NOMBRE_LIGA }}", nombre_liga.upper())
-        html_final = html_final.replace("{{ CONTENIDO_PARTIDOS }}", html_card)
-        
-        nombre_foto = f"reporte_custom_{chat_id}.png"
-        renderizar_liga_a_imagen_4k(html_final, nombre_foto)
-        
-        caption = f"🎯 ANÁLISIS SOLICITADO\n⚽ {partido.get('home_team', 'Local')} vs {partido.get('away_team', 'Visitante')}\n📊 10,000 simulaciones completadas."
-        send_telegram_photo(nombre_foto, caption=caption, chat_id=chat_id)
-        
-        if os.path.exists(nombre_foto):
-            os.remove(nombre_foto)
-            
+
+        sim = run_monte_carlo_analysis(partido)
+        reporte_texto = generar_reporte_partido(partido, sim)
+        send_telegram_message(reporte_texto, chat_id=chat_id)
+
     except Exception as e:
-        print(f"Error detallado en background: {e}")
-        send_telegram_message(f"⚠️ Error procesando el partido: {str(e)}", chat_id=chat_id)
+        print(f"Error en procesamiento individual: {e}")
+        send_telegram_message(f"⚠️ Error al procesar el partido: {str(e)}", chat_id=chat_id)
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -481,3 +371,4 @@ if __name__ == "__main__":
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+    
