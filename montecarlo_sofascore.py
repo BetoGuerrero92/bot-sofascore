@@ -12,8 +12,15 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruaI"  
 TELEGRAM_CHAT_ID = "-5173591171"
 
+# Headers optimizados para evitar bloqueos 403/406 de SofaScore
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Accept": "/",
+    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+    "Referer": "https://www.sofascore.com/",
+    "Origin": "https://www.sofascore.com",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache"
 }
 
 # Si está vacío, procesa TODOS los partidos de la cartelera sin excepción
@@ -258,7 +265,9 @@ def ejecutar_analisis_diario_21pm():
 
     url_api = f"https://api.sofascore.com/api/v3/sport/football/scheduled-events/{manana}"
     try:
-        resp = requests.get(url_api, headers=HEADERS, timeout=15)
+        session = requests.Session()
+        resp = session.get(url_api, headers=HEADERS, timeout=15)
+        
         if resp.status_code == 200:
             events = resp.json().get("events", [])
             if not events:
@@ -298,7 +307,7 @@ def ejecutar_analisis_diario_21pm():
                     time.sleep(90)
 
         else:
-            send_telegram_message("❌ Error al consultar la cartelera del día siguiente en SofaScore.")
+            send_telegram_message(f"❌ Error al consultar SofaScore (Código HTTP: {resp.status_code}).")
     except Exception as e:
         print(f"Error en tarea nocturna: {e}")
         send_telegram_message(f"❌ Error durante el barrido diario: {e}")
