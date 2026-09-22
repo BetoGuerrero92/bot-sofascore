@@ -1,4 +1,4 @@
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.blocking import BlockingScheduler
 import numpy as np
 
 
@@ -411,7 +411,32 @@ Apuesta derecha con 85% de probabilidad: {apuesta_derecha_txt}
     return reporte_texto
 
 
-def analyze_all_matches(target_matches):
+def analyze_all_matches(target_matches=None):
+    # Si no se pasan partidos manualmente al programador, se usa la lista por defecto
+    if target_matches is None:
+        target_matches = [
+            {
+                "home": "Equipo Local",
+                "away": "Equipo Visitante",
+                "exp_g_home": 1.6,
+                "exp_g_away": 1.2,
+                "exp_c_home": 5.2,
+                "exp_c_away": 4.1,
+                "exp_card_home": 2.1,
+                "exp_card_away": 2.4,
+                "exp_off_home": 2.0,
+                "exp_off_away": 1.8,
+                "exp_sav_home": 3.2,
+                "exp_sav_away": 3.8,
+                "exp_sot_home": 5.1,
+                "exp_sot_away": 4.3,
+                "exp_sh_home": 13.5,
+                "exp_sh_away": 11.2,
+                "exp_foul_home": 11.8,
+                "exp_foul_away": 12.5,
+            }
+        ]
+
     reportes = []
     for match in target_matches:
         simulacion = run_monte_carlo_analysis(match)
@@ -423,6 +448,10 @@ def analyze_all_matches(target_matches):
     return salida_final
 
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=analyze_all_matches, trigger="cron", hour=21, minute=0)
-scheduler.start()
+if _name_ == "_main_":
+    scheduler = BlockingScheduler()
+    scheduler.add_job(
+        func=analyze_all_matches, trigger="cron", hour=21, minute=0
+    )
+    print("Iniciando programador de tareas en Render...")
+    scheduler.start()
