@@ -16,6 +16,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+# Si está vacío, procesa TODOS los partidos de la cartelera sin excepción
+LIGAS_OBJETIVO_IDS = []  
+
 def send_telegram_message(text, chat_id=None):
     target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -31,7 +34,6 @@ def send_telegram_message(text, chat_id=None):
 
 def obtener_partido_por_url(url):
     try:
-        # Extraer los números de toda la URL (incluyendo lo que esté después de #id:)
         ids = re.findall(r'\d+', url)
         if not ids:
             return None
@@ -47,9 +49,12 @@ def obtener_partido_por_url(url):
                 "away": data.get("awayTeam", {}).get("name", "Visitante"),
                 "exp_g_home": 1.6,
                 "exp_g_away": 1.2,
+                "exp_c_home": 5.2,
+                "exp_c_away": 4.1,
+                "exp_card_home": 2.1,
+                "exp_card_away": 2.4,
             }
         else:
-            # Fallback en caso de que SofaScore restrinja la API
             if "/match/" in url:
                 slug = url.split("/match/")[1].split("/")[0]
                 partes = slug.replace("-", " ").title().split(" ")
@@ -59,112 +64,95 @@ def obtener_partido_por_url(url):
                     "away": " ".join(partes[mitad:]) if mitad > 0 else "Visitante",
                     "exp_g_home": 1.6,
                     "exp_g_away": 1.2,
+                    "exp_c_home": 5.2,
+                    "exp_c_away": 4.1,
+                    "exp_card_home": 2.1,
+                    "exp_card_away": 2.4,
                 }
     except Exception as e:
         print(f"Error consultando SofaScore: {e}")
     return None
 
 def run_monte_carlo_analysis(match, n_simulations=10000):
-    exp_goals_home = match.get("exp_g_home", 1.6)
-    exp_goals_away = match.get("exp_g_away", 1.2)
-    exp_corners_home = match.get("exp_c_home", 5.2)
-    exp_corners_away = match.get("exp_c_away", 4.1)
-    exp_cards_home = match.get("exp_card_home", 2.1)
-    exp_cards_away = match.get("exp_card_away", 2.4)
-    exp_offsides_home = match.get("exp_off_home", 2.0)
-    exp_offsides_away = match.get("exp_off_away", 1.8)
-    exp_saves_home = match.get("exp_sav_home", 3.2)
-    exp_saves_away = match.get("exp_sav_away", 3.8)
-    exp_sot_home = match.get("exp_sot_home", 5.1)
-    exp_sot_away = match.get("exp_sot_away", 4.3)
-    exp_shots_home = match.get("exp_sh_home", 13.5)
-    exp_shots_away = match.get("exp_sh_away", 11.2)
-    exp_fouls_home = match.get("exp_foul_home", 11.8)
-    exp_fouls_away = match.get("exp_foul_away", 12.5)
+    exp_g_h = match.get("exp_g_home", 1.6)
+    exp_g_a = match.get("exp_g_away", 1.2)
+    exp_c_h = match.get("exp_c_home", 5.2)
+    exp_c_a = match.get("exp_c_away", 4.1)
+    exp_card_h = match.get("exp_card_home", 2.1)
+    exp_card_a = match.get("exp_card_away", 2.4)
 
-    gh = np.random.poisson(exp_goals_home, n_simulations)
-    ga = np.random.poisson(exp_goals_away, n_simulations)
+    gh = np.random.poisson(exp_g_h, n_simulations)
+    ga = np.random.poisson(exp_g_a, n_simulations)
 
     gh_1t = np.random.binomial(gh, 0.45)
     ga_1t = np.random.binomial(ga, 0.45)
+    gh_2t = gh - gh_1t
+    ga_2t = ga - ga_1t
 
-    ch = np.random.poisson(exp_corners_home, n_simulations)
-    ca = np.random.poisson(exp_corners_away, n_simulations)
-    card_h = np.random.poisson(exp_cards_home, n_simulations)
-    card_a = np.random.poisson(exp_cards_away, n_simulations)
-    off_h = np.random.poisson(exp_offsides_home, n_simulations)
-    off_a = np.random.poisson(exp_offsides_away, n_simulations)
-    sav_h = np.random.poisson(exp_saves_home, n_simulations)
-    sav_a = np.random.poisson(exp_saves_away, n_simulations)
-    sot_h = np.random.poisson(exp_sot_home, n_simulations)
-    sot_a = np.random.poisson(exp_sot_away, n_simulations)
-    sh_h = np.random.poisson(exp_shots_home, n_simulations)
-    sh_a = np.random.poisson(exp_shots_away, n_simulations)
-    foul_h = np.random.poisson(exp_fouls_home, n_simulations)
-    foul_a = np.random.poisson(exp_fouls_away, n_simulations)
-    penalties = np.random.binomial(1, 0.22, n_simulations)
+    ch = np.random.poisson(exp_c_h, n_simulations)
+    ca = np.random.poisson(exp_c_a, n_simulations)
+    card_h = np.random.poisson(exp_card_h, n_simulations)
+    card_a = np.random.poisson(exp_card_a, n_simulations)
+
+    p_first_h = exp_g_h / (exp_g_h + exp_g_a) if (exp_g_h + exp_g_a) > 0 else 0.5
+    has_goals = (gh + ga) > 0
+    first_scorer_rand = np.random.binomial(1, p_first_h, n_simulations)
+    
+    first_home = has_goals & (first_scorer_rand == 1)
+    first_away = has_goals & (first_scorer_rand == 0)
+    no_goals = ~has_goals
 
     sim = {
-        "goles_linea": 2.5,
-        "goles_1t_linea": 0.5,
-        "corners_totales_over_linea": 8.5,
-        "corners_totales_under_linea": 11.5,
-        "corners_home_over_linea": 3.5,
-        "corners_home_under_linea": 5.5,
-        "corners_away_over_linea": 5.5,
-        "corners_away_under_linea": 8.5,
-        "cards_totales_over_linea": 3.5,
-        "cards_totales_under_linea": 5.5,
-        "cards_home_over_linea": 1.5,
-        "cards_home_under_linea": 2.5,
-        "cards_away_over_linea": 1.5,
-        "cards_away_under_linea": 2.5,
-        "offsides_totales_linea": 3.5,
-        "offsides_totales_under_linea": 5.5,
-        "saves_totales_linea": 5.5,
-        "saves_totales_under_linea": 7.5,
-        "sot_totales_linea": 8.5,
-        "sot_totales_under_linea": 10.5,
-        "shots_totales_linea": 22.5,
-        "shots_totales_under_linea": 26.5,
-        "fouls_totales_linea": 21.5,
-        "fouls_totales_under_linea": 25.5,
-        "btts_yes": np.mean((gh > 0) & (ga > 0)) * 100,
-        "btts_no": np.mean((gh == 0) | (ga == 0)) * 100,
-        "goles_over": np.mean((gh + ga) > 2.5) * 100,
-        "goles_under": np.mean((gh + ga) <= 2.5) * 100,
-        "goles_1t_over": np.mean((gh_1t + ga_1t) > 0.5) * 100,
-        "goles_1t_under": np.mean((gh_1t + ga_1t) <= 0.5) * 100,
-        "corners_totales_over": np.mean((ch + ca) > 8.5) * 100,
-        "corners_totales_under": np.mean((ch + ca) < 11.5) * 100,
-        "corners_home_over": np.mean(ch > 3.5) * 100,
-        "corners_home_under": np.mean(ch < 5.5) * 100,
-        "corners_away_over": np.mean(ca > 5.5) * 100,
-        "corners_away_under": np.mean(ca < 8.5) * 100,
-        "cards_totales_over": np.mean((card_h + card_a) > 3.5) * 100,
-        "cards_totales_under": np.mean((card_h + card_a) < 5.5) * 100,
-        "cards_home_over": np.mean(card_h > 1.5) * 100,
-        "cards_home_under": np.mean(card_h < 2.5) * 100,
-        "cards_away_over": np.mean(card_a > 1.5) * 100,
-        "cards_away_under": np.mean(card_a < 2.5) * 100,
-        "offsides_totales_over": np.mean((off_h + off_a) > 3.5) * 100,
-        "offsides_totales_under": np.mean((off_h + off_a) < 5.5) * 100,
-        "saves_totales_over": np.mean((sav_h + sav_a) > 5.5) * 100,
-        "saves_totales_under": np.mean((sav_h + sav_a) < 7.5) * 100,
-        "sot_totales_over": np.mean((sot_h + sot_a) > 8.5) * 100,
-        "sot_totales_under": np.mean((sot_h + sot_a) < 10.5) * 100,
-        "shots_totales_over": np.mean((sh_h + sh_a) > 22.5) * 100,
-        "shots_totales_under": np.mean((sh_h + sh_a) < 26.5) * 100,
-        "fouls_totales_over": np.mean((foul_h + foul_a) > 21.5) * 100,
-        "fouls_totales_under": np.mean((foul_h + foul_a) < 25.5) * 100,
-        "penalty_yes": np.mean(penalties == 1) * 100,
-        "penalty_no": np.mean(penalties == 0) * 100,
         "ml_home": np.mean(gh > ga) * 100,
         "ml_draw": np.mean(gh == ga) * 100,
         "ml_away": np.mean(ga > gh) * 100,
         "dc_1x": np.mean(gh >= ga) * 100,
         "dc_x2": np.mean(ga >= gh) * 100,
         "dc_12": np.mean(gh != ga) * 100,
+
+        "btts_yes": np.mean((gh > 0) & (ga > 0)) * 100,
+        "btts_no": np.mean((gh == 0) | (ga == 0)) * 100,
+
+        "goles_over_15": np.mean((gh + ga) > 1.5) * 100,
+        "goles_under_15": np.mean((gh + ga) <= 1.5) * 100,
+        "goles_over_25": np.mean((gh + ga) > 2.5) * 100,
+        "goles_under_25": np.mean((gh + ga) <= 2.5) * 100,
+        "goles_over_35": np.mean((gh + ga) > 3.5) * 100,
+        "goles_under_35": np.mean((gh + ga) <= 3.5) * 100,
+
+        "goles_1t_over_05": np.mean((gh_1t + ga_1t) > 0.5) * 100,
+        "goles_1t_under_05": np.mean((gh_1t + ga_1t) <= 0.5) * 100,
+        "goles_1t_over_15": np.mean((gh_1t + ga_1t) > 1.5) * 100,
+        "goles_1t_under_15": np.mean((gh_1t + ga_1t) <= 1.5) * 100,
+
+        "first_home": np.mean(first_home) * 100,
+        "first_away": np.mean(first_away) * 100,
+        "first_none": np.mean(no_goals) * 100,
+
+        "win_1t_home": np.mean(gh_1t > ga_1t) * 100,
+        "win_1t_draw": np.mean(gh_1t == ga_1t) * 100,
+        "win_1t_away": np.mean(ga_1t > gh_1t) * 100,
+        "win_2t_home": np.mean(gh_2t > ga_2t) * 100,
+        "win_2t_draw": np.mean(gh_2t == ga_2t) * 100,
+        "win_2t_away": np.mean(ga_2t > gh_2t) * 100,
+
+        "corners_over_85": np.mean((ch + ca) > 8.5) * 100,
+        "corners_under_85": np.mean((ch + ca) <= 8.5) * 100,
+        "corners_over_95": np.mean((ch + ca) > 9.5) * 100,
+        "corners_under_95": np.mean((ch + ca) <= 9.5) * 100,
+        "corners_home_over_45": np.mean(ch > 4.5) * 100,
+        "corners_home_under_45": np.mean(ch <= 4.5) * 100,
+        "corners_away_over_35": np.mean(ca > 3.5) * 100,
+        "corners_away_under_35": np.mean(ca <= 3.5) * 100,
+
+        "cards_over_35": np.mean((card_h + card_a) > 3.5) * 100,
+        "cards_under_35": np.mean((card_h + card_a) <= 3.5) * 100,
+        "cards_over_45": np.mean((card_h + card_a) > 4.5) * 100,
+        "cards_under_45": np.mean((card_h + card_a) <= 4.5) * 100,
+        "cards_home_over_15": np.mean(card_h > 1.5) * 100,
+        "cards_home_under_15": np.mean(card_h <= 1.5) * 100,
+        "cards_away_over_15": np.mean(card_a > 1.5) * 100,
+        "cards_away_under_15": np.mean(card_a <= 1.5) * 100,
     }
     return sim
 
@@ -173,75 +161,100 @@ def generar_reporte_partido(match, sim):
     away = match.get('away', 'Visitante')
 
     mercados_evaluados = [
-        ("Ambos anotan", sim["btts_yes"]),
-        ("Ambos no anotan", sim["btts_no"]),
-        (f"Over {sim['goles_linea']} goles partido", sim["goles_over"]),
-        (f"Under {sim['goles_linea']} goles partido", sim["goles_under"]),
-        (f"Over {sim['goles_1t_linea']} goles 1er tiempo", sim["goles_1t_over"]),
-        (f"Under {sim['goles_1t_linea']} goles 1er tiempo", sim["goles_1t_under"]),
-        (f"Over {sim['corners_totales_over_linea']} corners entre ambos", sim["corners_totales_over"]),
-        (f"Under {sim['corners_totales_under_linea']} corners entre ambos", sim["corners_totales_under"]),
-        (f"Over {sim['cards_totales_over_linea']} tarjetas entre ambos", sim["cards_totales_over"]),
-        (f"Under {sim['cards_totales_under_linea']} tarjetas entre ambos", sim["cards_totales_under"]),
-        (f"Over {sim['offsides_totales_linea']} fueras de lugar entre ambos", sim["offsides_totales_over"]),
-        (f"Under {sim['offsides_totales_under_linea']} fueras de lugar entre ambos", sim["offsides_totales_under"]),
-        (f"Over {sim['saves_totales_linea']} atajadas entre ambos porteros", sim["saves_totales_over"]),
-        (f"Under {sim['saves_totales_under_linea']} atajadas entre ambos porteros", sim["saves_totales_under"]),
-        (f"Over {sim['sot_totales_linea']} remates a portería entre ambos", sim["sot_totales_over"]),
-        (f"Under {sim['sot_totales_under_linea']} remates a portería entre ambos", sim["sot_totales_under"]),
-        (f"Over {sim['shots_totales_linea']} remates totales entre ambos", sim["shots_totales_over"]),
-        (f"Under {sim['shots_totales_under_linea']} remates totales entre ambos", sim["shots_totales_under"]),
-        (f"Over {sim['fouls_totales_linea']} faltas entre ambos", sim["fouls_totales_over"]),
-        (f"Under {sim['fouls_totales_under_linea']} faltas entre ambos", sim["fouls_totales_under"]),
-        ("Penalti en el encuentro - Sí", sim["penalty_yes"]),
-        ("Penalti en el encuentro - No", sim["penalty_no"]),
         (f"Gana {home}", sim["ml_home"]),
         ("Empate", sim["ml_draw"]),
         (f"Gana {away}", sim["ml_away"]),
         (f"Doble Oportunidad 1X ({home} o Empate)", sim["dc_1x"]),
         (f"Doble Oportunidad X2 ({away} o Empate)", sim["dc_x2"]),
         ("Doble Oportunidad 12 (Sin Empate)", sim["dc_12"]),
+        ("Ambos anotan - Sí", sim["btts_yes"]),
+        ("Ambos anotan - No", sim["btts_no"]),
+        ("Over 1.5 goles partido", sim["goles_over_15"]),
+        ("Under 1.5 goles partido", sim["goles_under_15"]),
+        ("Over 2.5 goles partido", sim["goles_over_25"]),
+        ("Under 2.5 goles partido", sim["goles_under_25"]),
+        ("Over 3.5 goles partido", sim["goles_over_35"]),
+        ("Under 3.5 goles partido", sim["goles_under_35"]),
+        ("Over 0.5 goles 1er Tiempo", sim["goles_1t_over_05"]),
+        ("Under 0.5 goles 1er Tiempo", sim["goles_1t_under_05"]),
+        ("Over 1.5 goles 1er Tiempo", sim["goles_1t_over_15"]),
+        ("Under 1.5 goles 1er Tiempo", sim["goles_1t_under_15"]),
+        (f"Primer equipo en anotar: {home}", sim["first_home"]),
+        (f"Primer equipo en anotar: {away}", sim["first_away"]),
+        ("Sin goles en el partido", sim["first_none"]),
+        (f"Gana 1er Tiempo: {home}", sim["win_1t_home"]),
+        ("Empate 1er Tiempo", sim["win_1t_draw"]),
+        (f"Gana 1er Tiempo: {away}", sim["win_1t_away"]),
+        (f"Gana 2do Tiempo: {home}", sim["win_2t_home"]),
+        ("Empate 2do Tiempo", sim["win_2t_draw"]),
+        (f"Gana 2do Tiempo: {away}", sim["win_2t_away"]),
+        ("Over 8.5 córners partido", sim["corners_over_85"]),
+        ("Under 8.5 córners partido", sim["corners_under_85"]),
+        ("Over 9.5 córners partido", sim["corners_over_95"]),
+        ("Under 9.5 córners partido", sim["corners_under_95"]),
+        (f"Over 4.5 córners {home}", sim["corners_home_over_45"]),
+        (f"Under 4.5 córners {home}", sim["corners_home_under_45"]),
+        (f"Over 3.5 córners {away}", sim["corners_away_over_35"]),
+        (f"Under 3.5 córners {away}", sim["corners_away_under_35"]),
+        ("Over 3.5 tarjetas partido", sim["cards_over_35"]),
+        ("Under 3.5 tarjetas partido", sim["cards_under_35"]),
+        ("Over 4.5 tarjetas partido", sim["cards_over_45"]),
+        ("Under 4.5 tarjetas partido", sim["cards_under_45"]),
+        (f"Over 1.5 tarjetas {home}", sim["cards_home_over_15"]),
+        (f"Under 1.5 tarjetas {home}", sim["cards_home_under_15"]),
+        (f"Over 1.5 tarjetas {away}", sim["cards_away_over_15"]),
+        (f"Under 1.5 tarjetas {away}", sim["cards_away_under_15"]),
     ]
 
     candidatos_85 = [(nombre, prob) for nombre, prob in mercados_evaluados if prob >= 85.0]
 
     if candidatos_85:
         candidatos_85.sort(key=lambda x: x[1], reverse=True)
-        top_pick, top_prob = candidatos_85[0]
-        apuesta_derecha_txt = f"🎯 {top_pick} ({top_prob:.0f}%)"
+        top_picks = [f"• {nombre} ({prob:.0f}%)" for nombre, prob in candidatos_85[:3]]
+        apuesta_derecha_txt = "\n".join(top_picks)
     else:
         apuesta_derecha_txt = "Sin selecciones directas ≥85%"
 
-    reporte_texto = f"""⚽ {home} vs {away}
+    reporte_texto = f"""⚽ ANÁLISIS DE MATCH: {home} vs {away}
 
-Ambos anotan: Sí ({sim['btts_yes']:.0f}%) | No ({sim['btts_no']:.0f}%)
-Goles: Over {sim['goles_linea']} ({sim['goles_over']:.0f}%) | Under {sim['goles_linea']} ({sim['goles_under']:.0f}%)
-Goles 1T: Over {sim['goles_1t_linea']} ({sim['goles_1t_over']:.0f}%) | Under {sim['goles_1t_linea']} ({sim['goles_1t_under']:.0f}%)
+💵 MONEYLINE & DOBLE CHANCE
+* {home}: {sim['ml_home']:.0f}% | Empate: {sim['ml_draw']:.0f}% | {away}: {sim['ml_away']:.0f}%
+* Doble Chance: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12']:.0f}%)
 
-🚩 Corners Totales: Over {sim['corners_totales_over_linea']} ({sim['corners_totales_over']:.0f}%) | Under {sim['corners_totales_under_linea']} ({sim['corners_totales_under']:.0f}%)
-* {home}: Over {sim['corners_home_over_linea']} ({sim['corners_home_over']:.0f}%) | Under {sim['corners_home_under_linea']} ({sim['corners_home_under']:.0f}%)
-* {away}: Over {sim['corners_away_over_linea']} ({sim['corners_away_over']:.0f}%) | Under {sim['corners_away_under_linea']} ({sim['corners_away_under']:.0f}%)
+⚽ GOLES & BTTS
+* Ambos Anotan: Sí ({sim['btts_yes']:.0f}%) | No ({sim['btts_no']:.0f}%)
+* Over/Under 1.5 Goles: Over ({sim['goles_over_15']:.0f}%) | Under ({sim['goles_under_15']:.0f}%)
+* Over/Under 2.5 Goles: Over ({sim['goles_over_25']:.0f}%) | Under ({sim['goles_under_25']:.0f}%)
+* Over/Under 3.5 Goles: Over ({sim['goles_over_35']:.0f}%) | Under ({sim['goles_under_35']:.0f}%)
 
-🟨 Tarjetas Totales: Over {sim['cards_totales_over_linea']} ({sim['cards_totales_over']:.0f}%) | Under {sim['cards_totales_under_linea']} ({sim['cards_totales_under']:.0f}%)
-* {home}: Over {sim['cards_home_over_linea']} ({sim['cards_home_over']:.0f}%) | Under {sim['cards_home_under_linea']} ({sim['cards_home_under']:.0f}%)
-* {away}: Over {sim['cards_away_over_linea']} ({sim['cards_away_over']:.0f}%) | Under {sim['cards_away_under_linea']} ({sim['cards_away_under']:.0f}%)
+⏱️ PRIMER TIEMPO & GANADOR DE MITAD
+* Goles 1T (O/U 0.5): Over ({sim['goles_1t_over_05']:.0f}%) | Under ({sim['goles_1t_under_05']:.0f}%)
+* Goles 1T (O/U 1.5): Over ({sim['goles_1t_over_15']:.0f}%) | Under ({sim['goles_1t_under_15']:.0f}%)
+* Gana 1er Tiempo: {home} ({sim['win_1t_home']:.0f}%) | X ({sim['win_1t_draw']:.0f}%) | {away} ({sim['win_1t_away']:.0f}%)
+* Gana 2do Tiempo: {home} ({sim['win_2t_home']:.0f}%) | X ({sim['win_2t_draw']:.0f}%) | {away} ({sim['win_2t_away']:.0f}%)
 
-🚩 Fueras de Lugar: Over {sim['offsides_totales_linea']} ({sim['offsides_totales_over']:.0f}%) | Under {sim['offsides_totales_under_linea']} ({sim['offsides_totales_under']:.0f}%)
-🧤 Atajadas: Over {sim['saves_totales_linea']} ({sim['saves_totales_over']:.0f}%) | Under {sim['saves_totales_under_linea']} ({sim['saves_totales_under']:.0f}%)
-🎯 Remates a Porte: Over {sim['sot_totales_linea']} ({sim['sot_totales_over']:.0f}%) | Under {sim['sot_totales_under_linea']} ({sim['sot_totales_under']:.0f}%)
-👟 Remates Totales: Over {sim['shots_totales_linea']} ({sim['shots_totales_over']:.0f}%) | Under {sim['shots_totales_under_linea']} ({sim['shots_totales_under']:.0f}%)
-🛑 Faltas: Over {sim['fouls_totales_linea']} ({sim['fouls_totales_over']:.0f}%) | Under {sim['fouls_totales_under_linea']} ({sim['fouls_totales_under']:.0f}%)
+🎯 QUIÉN ANOTA PRIMERO
+* {home}: {sim['first_home']:.0f}%
+* {away}: {sim['first_away']:.0f}%
+* Sin goles: {sim['first_none']:.0f}%
 
- penalty: Sí ({sim['penalty_yes']:.0f}%) | No ({sim['penalty_no']:.0f}%)
-Moneyline: {home} ({sim['ml_home']:.0f}%) | X ({sim['ml_draw']:.0f}%) | {away} ({sim['ml_away']:.0f}%)
-Doble Op: 1X ({sim['dc_1x']:.0f}%) | X2 ({sim['dc_x2']:.0f}%) | 12 ({sim['dc_12']:.0f}%)
+🚩 CÓRNERS (PARTIDO E INDIVIDUAL)
+* Totales: Over 8.5 ({sim['corners_over_85']:.0f}%) | Over 9.5 ({sim['corners_over_95']:.0f}%)
+* {home}: Over 4.5 ({sim['corners_home_over_45']:.0f}%)
+* {away}: Over 3.5 ({sim['corners_away_over_35']:.0f}%)
 
-🔥 PICK RECOMENDADO (≥85%): {apuesta_derecha_txt}"""
+🟨 TARJETAS (PARTIDO E INDIVIDUAL)
+* Totales: Over 3.5 ({sim['cards_over_35']:.0f}%) | Over 4.5 ({sim['cards_over_45']:.0f}%)
+* {home}: Over 1.5 ({sim['cards_home_over_15']:.0f}%)
+* {away}: Over 1.5 ({sim['cards_away_over_15']:.0f}%)
+
+🔥 SELECCIONES RECOMENDADAS (≥85%):
+{apuesta_derecha_txt}"""
     return reporte_texto
 
 def ejecutar_analisis_diario_21pm():
     manana = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    send_telegram_message(f"🚀 Iniciando barrido programado de partidos para mañana ({manana})...")
+    send_telegram_message(f"🚀 Iniciando barrido diario para mañana ({manana})...")
 
     url_api = f"https://api.sofascore.com/api/v3/sport/football/scheduled-events/{manana}"
     try:
@@ -252,21 +265,43 @@ def ejecutar_analisis_diario_21pm():
                 send_telegram_message("⚠️ No se encontraron partidos programados para mañana.")
                 return
 
-            for event in events[:15]:
-                match_info = {
-                    "home": event.get("homeTeam", {}).get("name", "Local"),
-                    "away": event.get("awayTeam", {}).get("name", "Visitante"),
-                    "exp_g_home": 1.6,
-                    "exp_g_away": 1.2,
-                }
-                sim = run_monte_carlo_analysis(match_info)
-                reporte = generar_reporte_partido(match_info, sim)
-                send_telegram_message(reporte)
-                time.sleep(1.5)
+            eventos_filtrados = [
+                ev for ev in events 
+                if not LIGAS_OBJETIVO_IDS or ev.get("tournament", {}).get("uniqueTournament", {}).get("id") in LIGAS_OBJETIVO_IDS
+            ]
+
+            total_partidos = len(eventos_filtrados)
+            send_telegram_message(f"📊 Total de partidos a procesar: {total_partidos}. Se enviarán 2 partidos por mensaje cada 90 segundos.")
+
+            for i in range(0, total_partidos, 2):
+                lote = eventos_filtrados[i:i+2]
+                reportes_lote = []
+
+                for event in lote:
+                    match_info = {
+                        "home": event.get("homeTeam", {}).get("name", "Local"),
+                        "away": event.get("awayTeam", {}).get("name", "Visitante"),
+                        "exp_g_home": 1.6,
+                        "exp_g_away": 1.2,
+                        "exp_c_home": 5.2,
+                        "exp_c_away": 4.1,
+                        "exp_card_home": 2.1,
+                        "exp_card_away": 2.4,
+                    }
+                    sim = run_monte_carlo_analysis(match_info)
+                    reportes_lote.append(generar_reporte_partido(match_info, sim))
+
+                mensaje_unificado = "\n\n====================\n\n".join(reportes_lote)
+                send_telegram_message(mensaje_unificado)
+
+                if i + 2 < total_partidos:
+                    time.sleep(90)
+
         else:
             send_telegram_message("❌ Error al consultar la cartelera del día siguiente en SofaScore.")
     except Exception as e:
         print(f"Error en tarea nocturna: {e}")
+        send_telegram_message(f"❌ Error durante el barrido diario: {e}")
 
 scheduler = BackgroundScheduler(timezone="America/Mexico_City")
 scheduler.add_job(func=ejecutar_analisis_diario_21pm, trigger="cron", hour=21, minute=0)
@@ -275,6 +310,12 @@ scheduler.start()
 @app.route("/", methods=["GET", "HEAD"])
 def index():
     return "Bot Monte Carlo activo", 200
+
+@app.route("/run-daily", methods=["GET", "POST"])
+def trigger_daily():
+    proceso = multiprocessing.Process(target=ejecutar_analisis_diario_21pm)
+    proceso.start()
+    return "Barrido diario iniciado correctamente", 200
 
 def procesar_partido_background(url_raw, chat_id):
     try:
@@ -323,6 +364,5 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
 
     
