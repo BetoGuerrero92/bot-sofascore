@@ -8,7 +8,12 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "Bot de análisis Monte Carlo activo.", 200
+    try:
+        # Ejecuta la función principal que procesa y envía a Telegram
+        job() 
+        return "Análisis ejecutado y enviado a Telegram correctamente.", 200
+    except Exception as e:
+        return f"Error durante la ejecución: {str(e)}", 500
 
 
 def run_monte_carlo_analysis(match, n_simulations=10000):
