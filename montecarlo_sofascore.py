@@ -15,7 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 if not TELEGRAM_BOT_TOKEN:
     print("⚠️ ADVERTENCIA: TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno.")
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 # =========================================================
 # CLIENTE HTTP CON BYPASS CLOUDFLARE (CURL_CFFI)
