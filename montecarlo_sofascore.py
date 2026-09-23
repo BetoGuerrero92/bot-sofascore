@@ -450,4 +450,23 @@ def procesar_webhook_telegram(req):
                 send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
 
     except Exception as e:
-        print(f"Error
+        print(f"Error en Webhook: {e}")
+
+    return "OK", 200
+
+@app.route("/", methods=["GET", "HEAD", "POST"])
+def index():
+    if request.method == "POST":
+        return procesar_webhook_telegram(request)
+    return "Bot Monte Carlo activo y en espera.", 200
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    return procesar_webhook_telegram(request)
+
+# =========================================================
+# PUNTO DE ENTRADA PRINCIPAL
+# =========================================================
+if _name_ == "_main_":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0
