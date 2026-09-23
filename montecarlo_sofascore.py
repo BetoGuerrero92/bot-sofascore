@@ -2,10 +2,10 @@ import os
 import time
 import re
 import datetime
+import threading
 import numpy as np
 import requests
 from curl_cffi import requests as curl_requests
-import multiprocessing
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -61,7 +61,8 @@ def obtener_partido_por_url(url):
             return None
         event_id = ids[-1]
         
-        api_url = f"https://api.sofascore.com/api/v3/event/{event_id}"
+        # Corregido: v1 en lugar de v3 para la API de SofaScore
+        api_url = f"https://api.sofascore.com/api/v1/event/{event_id}"
         scraper = get_scraper()
         resp = scraper.get(api_url, timeout=10)
         
@@ -102,7 +103,6 @@ def obtener_partido_por_url(url):
 # SIMULACIÓN MONTE CARLO (MERCADOS EXTENDIDOS)
 # =========================================================
 def run_monte_carlo_analysis(match, n_simulations=10000):
-    # Carga de parámetros esperados (Lambdas de Poisson)
     exp_g_h = match.get("exp_g_home", 1.6)
     exp_g_a = match.get("exp_g_away", 1.2)
     exp_c_h = match.get("exp_c_home", 5.2)
@@ -154,7 +154,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     sv_h = np.random.poisson(exp_sv_h, n_simulations)
     sv_a = np.random.poisson(exp_sv_a, n_simulations)
 
-    # Primer anotador
     p_first_h = exp_g_h / (exp_g_h + exp_g_a) if (exp_g_h + exp_g_a) > 0 else 0.5
     has_goals = (gh + ga) > 0
     first_scorer_rand = np.random.binomial(1, p_first_h, n_simulations)
@@ -163,7 +162,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     no_goals = ~has_goals
 
     sim = {
-        # Moneyline & Doble Oportunidad
         "ml_home": np.mean(gh > ga) * 100,
         "ml_draw": np.mean(gh == ga) * 100,
         "ml_away": np.mean(ga > gh) * 100,
@@ -171,7 +169,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "dc_x2": np.mean(ga >= gh) * 100,
         "dc_12": np.mean(gh != ga) * 100,
 
-        # BTTS & Goles
         "btts_yes": np.mean((gh > 0) & (ga > 0)) * 100,
         "btts_no": np.mean((gh == 0) | (ga == 0)) * 100,
         "goles_over_15": np.mean((gh + ga) > 1.5) * 100,
@@ -181,7 +178,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "goles_over_35": np.mean((gh + ga) > 3.5) * 100,
         "goles_under_35": np.mean((gh + ga) <= 3.5) * 100,
 
-        # Tiempos & Primer Anotador
         "goles_1t_over_05": np.mean((gh_1t + ga_1t) > 0.5) * 100,
         "goles_1t_under_05": np.mean((gh_1t + ga_1t) <= 0.5) * 100,
         "goles_1t_over_15": np.mean((gh_1t + ga_1t) > 1.5) * 100,
@@ -196,7 +192,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "win_2t_draw": np.mean(gh_2t == ga_2t) * 100,
         "win_2t_away": np.mean(ga_2t > gh_2t) * 100,
 
-        # Córners
         "corners_over_85": np.mean((ch + ca) > 8.5) * 100,
         "corners_under_85": np.mean((ch + ca) <= 8.5) * 100,
         "corners_over_95": np.mean((ch + ca) > 9.5) * 100,
@@ -206,7 +201,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "corners_away_over_35": np.mean(ca > 3.5) * 100,
         "corners_away_under_35": np.mean(ca <= 3.5) * 100,
 
-        # Tarjetas
         "cards_over_35": np.mean((card_h + card_a) > 3.5) * 100,
         "cards_under_35": np.mean((card_h + card_a) <= 3.5) * 100,
         "cards_over_45": np.mean((card_h + card_a) > 4.5) * 100,
@@ -216,7 +210,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "cards_away_over_15": np.mean(card_a > 1.5) * 100,
         "cards_away_under_15": np.mean(card_a <= 1.5) * 100,
 
-        # Fuera de Lugar (Offsides)
         "off_over_25": np.mean((off_h + off_a) > 2.5) * 100,
         "off_under_25": np.mean((off_h + off_a) <= 2.5) * 100,
         "off_over_35": np.mean((off_h + off_a) > 3.5) * 100,
@@ -226,7 +219,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "off_away_over_15": np.mean(off_a > 1.5) * 100,
         "off_away_under_15": np.mean(off_a <= 1.5) * 100,
 
-        # Disparos a Puerta (SOT)
         "sot_over_75": np.mean((sot_h + sot_a) > 7.5) * 100,
         "sot_under_75": np.mean((sot_h + sot_a) <= 7.5) * 100,
         "sot_over_85": np.mean((sot_h + sot_a) > 8.5) * 100,
@@ -236,7 +228,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "sot_away_over_25": np.mean(sot_a > 2.5) * 100,
         "sot_away_under_25": np.mean(sot_a <= 2.5) * 100,
 
-        # Disparos Totales
         "st_over_215": np.mean((st_h + st_a) > 21.5) * 100,
         "st_under_215": np.mean((st_h + st_a) <= 21.5) * 100,
         "st_over_235": np.mean((st_h + st_a) > 23.5) * 100,
@@ -246,7 +237,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "st_away_over_95": np.mean(st_a > 9.5) * 100,
         "st_away_under_95": np.mean(st_a <= 9.5) * 100,
 
-        # Faltas
         "fl_over_225": np.mean((fl_h + fl_a) > 22.5) * 100,
         "fl_under_225": np.mean((fl_h + fl_a) <= 22.5) * 100,
         "fl_over_245": np.mean((fl_h + fl_a) > 24.5) * 100,
@@ -256,7 +246,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
         "fl_away_over_115": np.mean(fl_a > 11.5) * 100,
         "fl_away_under_115": np.mean(fl_a <= 11.5) * 100,
 
-        # Atajadas de Portero
         "sv_over_55": np.mean((sv_h + sv_a) > 5.5) * 100,
         "sv_under_55": np.mean((sv_h + sv_a) <= 5.5) * 100,
         "sv_over_65": np.mean((sv_h + sv_a) > 6.5) * 100,
@@ -410,7 +399,7 @@ def generar_reporte_partido(match, sim):
 
 ⚠️ FALTAS COMETIDAS
 * Totales: Over 22.5 ({sim['fl_over_225']:.0f}%) | Over 24.5 ({sim['fl_over_245']:.0f}%)
-* {home}: Over 10.5 ({sim['fl_home_over_105']:.0f}%) | {away}: Over 11.5 ({sim['fl_away_over_115']:.0f}%)
+* {home}: Over 10.5 ({sim['fl_home_over_105']:.0f}%) | {away}: Over 11.5 ({sim['fl_away_under_115']:.0f}%)
 
 🧤 ATAJADAS DE PORTERO
 * Totales: Over 5.5 ({sim['sv_over_55']:.0f}%) | Over 6.5 ({sim['sv_over_65']:.0f}%)
@@ -427,7 +416,8 @@ def ejecutar_analisis_diario_21pm():
     manana = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     send_telegram_message(f"🚀 Iniciando barrido diario para mañana ({manana})...")
 
-    url_api = f"https://api.sofascore.com/api/v3/sport/football/scheduled-events/{manana}"
+    # Corregido: v1 en lugar de v3 para la API de SofaScore
+    url_api = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{manana}"
     try:
         scraper = get_scraper()
         resp = scraper.get(url_api, timeout=15)
@@ -524,8 +514,9 @@ def procesar_webhook_telegram(req):
             url = next((w.strip() for w in words if "sofascore.com" in w), None)
 
             if url:
-                proceso = multiprocessing.Process(target=procesar_partido_background, args=(url, chat_id))
-                proceso.start()
+                # Corregido: threading.Thread en lugar de multiprocessing.Process
+                t = threading.Thread(target=procesar_partido_background, args=(url, chat_id), daemon=True)
+                t.start()
             else:
                 send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
 
@@ -548,8 +539,9 @@ def webhook():
 @app.route("/run-daily", methods=["GET", "POST"])
 def manual_trigger():
     try:
-        proceso = multiprocessing.Process(target=ejecutar_analisis_diario_21pm)
-        proceso.start()
+        # Corregido: threading.Thread en lugar de multiprocessing.Process
+        t = threading.Thread(target=ejecutar_analisis_diario_21pm, daemon=True)
+        t.start()
         return "Análisis ejecutado manualmente y enviado a Telegram.", 200
     except Exception as e:
         return f"Error al ejecutar: {str(e)}", 500
