@@ -1,24 +1,21 @@
 import os
-import time
 import re
-import datetime
 import threading
 import numpy as np
 import requests
 from curl_cffi import requests as curl_requests
 from flask import Flask, request
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # =========================================================
-# CONFIGURACIÓN GENERAL Y CREDENCIALES
+# CONFIGURACIÓN GENERAL Y CREDENCIALES (DESDE VARIABLES DE ENTORNO)
 # =========================================================
-TELEGRAM_BOT_TOKEN = "8981343928:AAGkvLxUoHt4tSLP7x20a5QOOTBgnJqruI"
-TELEGRAM_CHAT_ID = "-5173591171"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# Si está vacío, procesa TODOS los partidos de la cartelera sin excepción
-LIGAS_OBJETIVO_IDS = []  
+if not TELEGRAM_BOT_TOKEN:
+    print("⚠️ ADVERTENCIA: TELEGRAM_BOT_TOKEN no está configurado en las variables de entorno.")
 
-app = Flask(__name__)
+app = Flask(_name_)
 
 # =========================================================
 # CLIENTE HTTP CON BYPASS CLOUDFLARE (CURL_CFFI)
@@ -39,6 +36,10 @@ def get_scraper():
 # =========================================================
 def send_telegram_message(text, chat_id=None):
     target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not target_chat:
+        print("❌ send_telegram_message: falta token o chat_id.")
+        return False
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": target_chat,
@@ -47,9 +48,12 @@ def send_telegram_message(text, chat_id=None):
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        r = requests.post(url, json=payload, timeout=10)
+        print(f"TG status: {r.status_code} - {r.text[:300]}")
+        return r.status_code == 200
     except Exception as e:
         print(f"Error enviando a Telegram: {e}")
+        return False
 
 # =========================================================
 # EXTRACCIÓN DE DATOS DE SOFASCORE
@@ -60,13 +64,11 @@ def obtener_partido_por_url(url):
         if not ids:
             return None
         event_id = ids[-1]
-        
-        # Corregido: v1 en lugar de v3 para la API de SofaScore
+
         api_url = f"https://api.sofascore.com/api/v1/event/{event_id}"
         scraper = get_scraper()
         resp = scraper.get(api_url, timeout=10)
-        
-        # Parámetros por defecto para estadísticas esperadas (Expected Values)
+
         default_stats = {
             "exp_g_home": 1.6, "exp_g_away": 1.2,
             "exp_c_home": 5.2, "exp_c_away": 4.1,
@@ -77,7 +79,7 @@ def obtener_partido_por_url(url):
             "exp_fl_home": 11.5, "exp_fl_away": 12.8,
             "exp_sv_home": 2.8, "exp_sv_away": 3.5,
         }
-        
+
         if resp.status_code == 200:
             data = resp.json().get("event", {})
             return {
@@ -86,6 +88,7 @@ def obtener_partido_por_url(url):
                 **default_stats
             }
         else:
+            print(f"SofaScore respondió {resp.status_code} para event_id {event_id}")
             if "/match/" in url:
                 slug = url.split("/match/")[1].split("/")[0]
                 partes = slug.replace("-", " ").title().split(" ")
@@ -120,7 +123,6 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     exp_sv_h = match.get("exp_sv_home", 2.8)
     exp_sv_a = match.get("exp_sv_away", 3.5)
 
-    # 1. Goles
     gh = np.random.poisson(exp_g_h, n_simulations)
     ga = np.random.poisson(exp_g_a, n_simulations)
     gh_1t = np.random.binomial(gh, 0.45)
@@ -128,29 +130,23 @@ def run_monte_carlo_analysis(match, n_simulations=10000):
     gh_2t = gh - gh_1t
     ga_2t = ga - ga_1t
 
-    # 2. Córners y Tarjetas
     ch = np.random.poisson(exp_c_h, n_simulations)
     ca = np.random.poisson(exp_c_a, n_simulations)
     card_h = np.random.poisson(exp_card_h, n_simulations)
     card_a = np.random.poisson(exp_card_a, n_simulations)
 
-    # 3. Fueras de Lugar (Offsides)
     off_h = np.random.poisson(exp_off_h, n_simulations)
     off_a = np.random.poisson(exp_off_a, n_simulations)
 
-    # 4. Disparos a Puerta (Shots on Target)
     sot_h = np.random.poisson(exp_sot_h, n_simulations)
     sot_a = np.random.poisson(exp_sot_a, n_simulations)
 
-    # 5. Disparos Totales
     st_h = np.random.poisson(exp_st_h, n_simulations)
     st_a = np.random.poisson(exp_st_a, n_simulations)
 
-    # 6. Faltas
     fl_h = np.random.poisson(exp_fl_h, n_simulations)
     fl_a = np.random.poisson(exp_fl_a, n_simulations)
 
-    # 7. Atajadas de Portero
     sv_h = np.random.poisson(exp_sv_h, n_simulations)
     sv_a = np.random.poisson(exp_sv_a, n_simulations)
 
@@ -399,7 +395,7 @@ def generar_reporte_partido(match, sim):
 
 ⚠️ FALTAS COMETIDAS
 * Totales: Over 22.5 ({sim['fl_over_225']:.0f}%) | Over 24.5 ({sim['fl_over_245']:.0f}%)
-* {home}: Over 10.5 ({sim['fl_home_over_105']:.0f}%) | {away}: Over 11.5 ({sim['fl_away_under_115']:.0f}%)
+* {home}: Over 10.5 ({sim['fl_home_over_105']:.0f}%) | {away}: Over 11.5 ({sim['fl_away_over_115']:.0f}%)
 
 🧤 ATAJADAS DE PORTERO
 * Totales: Over 5.5 ({sim['sv_over_55']:.0f}%) | Over 6.5 ({sim['sv_over_65']:.0f}%)
@@ -408,72 +404,6 @@ def generar_reporte_partido(match, sim):
 🔥 SELECCIONES RECOMENDADAS (≥85%):
 {apuesta_derecha_txt}"""
     return reporte_texto
-
-# =========================================================
-# TAREA AUTOMÁTICA DIARIA (BARRIDO NOCTURNO 21:00 PM)
-# =========================================================
-def ejecutar_analisis_diario_21pm():
-    manana = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    send_telegram_message(f"🚀 Iniciando barrido diario para mañana ({manana})...")
-
-    # Corregido: v1 en lugar de v3 para la API de SofaScore
-    url_api = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{manana}"
-    try:
-        scraper = get_scraper()
-        resp = scraper.get(url_api, timeout=15)
-        
-        if resp.status_code == 200:
-            events = resp.json().get("events", [])
-            if not events:
-                send_telegram_message("⚠️ No se encontraron partidos programados para mañana.")
-                return
-
-            eventos_filtrados = [
-                ev for ev in events 
-                if not LIGAS_OBJETIVO_IDS or ev.get("tournament", {}).get("uniqueTournament", {}).get("id") in LIGAS_OBJETIVO_IDS
-            ]
-
-            total_partidos = len(eventos_filtrados)
-            send_telegram_message(f"📊 Total de partidos a procesar: {total_partidos}. Se enviarán 2 partidos por mensaje cada 90 segundos.")
-
-            for i in range(0, total_partidos, 2):
-                lote = eventos_filtrados[i:i+2]
-                reportes_lote = []
-
-                for event in lote:
-                    match_info = {
-                        "home": event.get("homeTeam", {}).get("name", "Local"),
-                        "away": event.get("awayTeam", {}).get("name", "Visitante"),
-                        "exp_g_home": 1.6, "exp_g_away": 1.2,
-                        "exp_c_home": 5.2, "exp_c_away": 4.1,
-                        "exp_card_home": 2.1, "exp_card_away": 2.4,
-                        "exp_off_home": 1.8, "exp_off_away": 1.5,
-                        "exp_sot_home": 4.5, "exp_sot_away": 3.8,
-                        "exp_st_home": 12.5, "exp_st_away": 10.2,
-                        "exp_fl_home": 11.5, "exp_fl_away": 12.8,
-                        "exp_sv_home": 2.8, "exp_sv_away": 3.5,
-                    }
-                    sim = run_monte_carlo_analysis(match_info)
-                    reportes_lote.append(generar_reporte_partido(match_info, sim))
-
-                mensaje_unificado = "\n\n====================\n\n".join(reportes_lote)
-                send_telegram_message(mensaje_unificado)
-
-                if i + 2 < total_partidos:
-                    time.sleep(90)
-
-        else:
-            send_telegram_message(f"❌ Error al consultar SofaScore (Código HTTP: {resp.status_code}).")
-    except Exception as e:
-        print(f"Error en tarea nocturna: {e}")
-        send_telegram_message(f"❌ Error durante el barrido diario: {e}")
-
-# =========================================================
-# PROGRAMADOR DE TAREAS SCHEDULER (9:00 PM MEXICO CITY)
-# =========================================================
-scheduler = BackgroundScheduler(timezone="America/Mexico_City")
-scheduler.add_job(func=ejecutar_analisis_diario_21pm, trigger="cron", hour=21, minute=0)
-scheduler.start()
 
 # =========================================================
 # PROCESAMIENTO EN SEGUNDO PLANO DE ENLACES INDIVIDUALES
@@ -509,46 +439,15 @@ def procesar_webhook_telegram(req):
 
         if "sofascore.com" in text:
             send_telegram_message("🔍 Analizando partido individual...\nEjecutando simulaciones de Monte Carlo...", chat_id=chat_id)
-            
+
             words = text.split()
             url = next((w.strip() for w in words if "sofascore.com" in w), None)
 
             if url:
-                # Corregido: threading.Thread en lugar de multiprocessing.Process
                 t = threading.Thread(target=procesar_partido_background, args=(url, chat_id), daemon=True)
                 t.start()
             else:
                 send_telegram_message("❌ No se pudo extraer la URL del mensaje.", chat_id=chat_id)
 
     except Exception as e:
-        print(f"Error en Webhook: {e}")
-
-    return "OK", 200
-
-@app.route("/", methods=["GET", "HEAD", "POST"])
-def index():
-    if request.method == "POST":
-        return procesar_webhook_telegram(request)
-    return "Bot Monte Carlo activo y en espera.", 200
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    return procesar_webhook_telegram(request)
-
-@app.route("/run", methods=["GET", "POST"])
-@app.route("/run-daily", methods=["GET", "POST"])
-def manual_trigger():
-    try:
-        # Corregido: threading.Thread en lugar de multiprocessing.Process
-        t = threading.Thread(target=ejecutar_analisis_diario_21pm, daemon=True)
-        t.start()
-        return "Análisis ejecutado manualmente y enviado a Telegram.", 200
-    except Exception as e:
-        return f"Error al ejecutar: {str(e)}", 500
-
-# =========================================================
-# PUNTO DE ENTRADA PRINCIPAL
-# =========================================================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+        print(f"Error
